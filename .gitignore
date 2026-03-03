@@ -363,7 +363,7 @@ MigrationBackup/
 FodyWeavers.xsd
 
 # Ignorer tout le dossier Erwan
-Dossiers-individuels/Erwan/
+Dossiers-individuels/Erwan/IHM_BancTest
 
 # (optionnel) Ignorer fichiers temporaires
 *.bak
