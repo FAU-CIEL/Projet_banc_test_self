@@ -1,0 +1,16 @@
+version 1: esptool.py --port20 write_flash 0x00000 D:/fauret.SNIRW/Projet_banc_test_self/Dossiers-individuels/Theotime/Simulation_banc/Simulation.mpy
+version 2: esptool --port 20 write-flash 0x00000 D:/fauret.SNIRW/Projet_banc_test_self/Dossiers-individuels/Theotime/Simulation_banc/Simulation.mpy
+version 3: esptool --port COM20 write-flash 0x00000 D:/fauret.SNIRW/Projet_banc_test_self/Dossiers-individuels/Theotime/Simulation_banc/Simulation.mpy
+version 4: ampy --port COM20 put "D:\fauret.SNIRW\Projet_banc_test_self\Dossiers-individuels\Theotime\Simulation_banc\Simulation.mpy"
+version 5: mpremote connect COM20 fs cp D:\fauret.SNIRW\Projet_banc_test_self\Dossiers-individuels\Theotime\Simulation_banc\Simulation.mpy :Simulation.mpy
+// solution pas utiliser
+
+
+
+install microPython :
+esptool --chip esp32 --port COM20 erase-flash
+esptool --chip esp32 --port COM20 write-flash 0x1000 D:/fauret.SNIRW/Projet_banc_test_self/Dossiers-individuels/Theotime/ESP32_GENERIC-D2WD-20251209-v1.27.0.bin
+
+
+Compiler .py en .mpy:
+mpy-cross Simulation.py
