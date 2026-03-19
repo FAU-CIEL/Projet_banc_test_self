@@ -13,4 +13,10 @@ esptool --chip esp32 --port COM20 write-flash 0x1000 D:/fauret.SNIRW/Projet_banc
 
 
 Compiler .py en .mpy:
-mpy-cross Simulation.py
+mpy-cross fichier.py
+
+
+json
+-> temps
+-> tension
+-> intensité
