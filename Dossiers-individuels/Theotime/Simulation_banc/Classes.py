@@ -1,6 +1,7 @@
 import select   # classe detection evenements
 import errno    # classe erreurs
 import math     # classe operations mathematiques
+import time     # classe pour le temps
 import sys      # classe systeme (environement + entrée/sortie)
 import io       # classe flux entree/sortie
 import os       # classe systeme (gestion fichiers)
@@ -10,37 +11,55 @@ import os       # classe systeme (gestion fichiers)
 class Gestion_Reception:
     def __init__(self):
         self.__trame = ""
+        self.trame_correct = False
 
     def reception_trame(self):
         if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
             self.__trame = sys.stdin.readline()
+
+    def decoupage_trame(self):
+        if self.__trame == "recevoir\n":
+            self.trame_correct = True
+        else:
+            self.trame_correct = False
 
     def gestion_trame(self):
         pass
 
 # classe qui simule le circuit (equa diff + transformer en Z)
 class Simulation:
-    def __init__(self, L, C, U0, dt, duree):
+    def __init__(self):
         # parametre physique
-        self.__L = L
-        self.__C = C
+        self.__L = 0
+        self.__C = 0
 
         # condition initial
-        self.__U0 = U0
+        self.__U0 = 0
 
         # gestion du temps
-        self.__dt = dt                                                    # pas de temps
-        self.__duree = duree                                              # temps de sim
-        self.__n_steps = int(max(1, math.ceil(self.__duree / self.__dt)))     # nb d'etapes
+        self.__dt = 0       # pas de temps
+        self.__duree = 0    # temps de sim
+        self.__n_steps = 0  # nb d'etapes
 
-        self.__omega0 = 1/math.sqrt(self.__L * self.__C)
-        self.__f0 = self.__omega0 * self.__dt
+        self.__omega0 = 0
+        self.__f0 = 0
         self.__phi = 0
 
         # tableaux de sorties
         self.t = []
         self.i_l = []
         self.u_l = []
+
+    def init_parametre(self, L, C, U0, dt, duree):
+        self.__L = L
+        self.__C = C
+        self.__U0 = U0
+        self.__dt = dt
+        self.__duree = duree
+        self.__n_steps = int(max(1, math.ceil(self.__duree / self.__dt)))
+        self.__omega0 = 1 / math.sqrt(self.__L * self.__C)
+        self.__f0 = self.__omega0 * self.__dt
+        self.__phi = 0
 
     def __calcul_tension(self, t):
         return self.__U0 * math.cos(self.__omega0 * t + self.__phi)
@@ -51,6 +70,7 @@ class Simulation:
     def __transformer_Z_tension(self, z):
         return self.__U0 * (z * (z * math.cos(self.__phi - math.cos(self.__f0 - self.__phi))) / z **2 - 2 * z * math.cos(self.__f0) + 1)
 
+    # fonction a revoir div par 0!
     def __transformer_Z_intensite(self, z):
         return -self.__C * self.__U0 * self.__omega0 * (z * math.sin(self.__f0) / z **2 - 2 * z * math.cos(self.__f0) + 1)
     
@@ -62,7 +82,7 @@ class Simulation:
 
 
 # classe qui stocke les valeurs dans un json
-# classe terminer!! et fonctionnelle
+# classe terminer?
 class Gestion_json:
     def __init__(self):
         self.__chemin_json = "LOG"
@@ -76,6 +96,13 @@ class Gestion_json:
                 return True
         return False
     
+    def __fichier_existant(self):
+        for file in os.ilistdir():
+            nom_file, type_, *_ = file
+            if type_ == 0x8000 and nom_file == self.__fichier_json:     # type 0x8000 = fichier
+                return True
+        return False
+    
     def __creer_chemin_json(self):
         if not self.__dossier_existant():
             os.mkdir(self.__chemin_json)
@@ -84,10 +111,7 @@ class Gestion_json:
         if sys.platform == "esp32":
             self.__creer_chemin_json()
             os.chdir(self.__chemin_json)
-            try:
-                io.open(self.__fichier_json, 'x')
-            except errno.EEXIST:
-                io.open(self.__fichier_json, 'w')
+            io.open(self.__fichier_json, 'w')
 
     def preparation_donnee(self, donnee, valeur):
         if donnee == "temps":
@@ -107,6 +131,20 @@ class Gestion_json:
             file.write(self.__donner_a_stocker)
         file.close()
 
+    def __detruire_file(self):
+        os.chdir(self.__chemin_json)
+        if self.__fichier_existant():
+            os.remove(self.__fichier_json)
+
+    def detruire_chemin(self):
+        if sys.platform == "esp23":
+            while os.getcwd() != '/': os.chdir("..")
+
+            self.__detruire_file()
+            os.chdir("..")
+            if self.__dossier_existant():
+                os.rmdir(self.__chemin_json)
+
 # classe qui renvoie les données a l'IHM
 class Gestion_envoi:
     def __init__(self):
@@ -114,13 +152,14 @@ class Gestion_envoi:
         self.__fichier_json = "donnees_self.json"
 
     def __fichier_existant(self):
-        while os.getcwd() != "/": os.chdir("..") # permet de revenir a la racine
+        if sys.platform == "esp32":
+            while os.getcwd() != "/": os.chdir("..") # permet de revenir a la racine
 
-        os.chdir(self.__chemin_fichier_json)
-        for fichier in os.ilistdir():
-            nom_fichier, type_, *_ = fichier
-            if type_ == 0x8000 and nom_fichier == self.__fichier_json: # type 0x8000 = fichier
-                return True
+            os.chdir(self.__chemin_fichier_json)
+            for fichier in os.ilistdir():
+                nom_fichier, type_, *_ = fichier
+                if type_ == 0x8000 and nom_fichier == self.__fichier_json: # type 0x8000 = fichier
+                    return True
         return False
 
     def __sortie_prete(self):
@@ -134,7 +173,7 @@ class Gestion_envoi:
                 return False
 
     def envoi_donnees(self):
-        if self.__sortie_prete():
+        if self.__sortie_prete() and self.__fichier_existant():
             with io.open(self.__fichier_json, 'r') as file:
                 for line in file:
                     sys.stdout.write(line.strip() + "\n")
@@ -143,13 +182,21 @@ class Gestion_envoi:
 class Gestion_fonction:
     def __init__(self):
         self.reception = Gestion_Reception()
-        self.Simulation_banc = Simulation(0, 0, 0, 0, 0)
+        self.Simulation_banc = Simulation()
         self.mon_json = Gestion_json()
         self.retour_donnees = Gestion_envoi()
 
     def loop(self):
-        self.mon_json.creer_json()
-        self.mon_json.preparation_donnee("temps", self.Simulation_banc.t)
-        self.mon_json.preparation_donnee("tension",self.Simulation_banc.u_l)
-        self.mon_json.preparation_donnee("intensiter", self.Simulation_banc.i_l)
-        self.mon_json.charger_json()
+        while True:
+            self.reception.reception_trame()
+            self.reception.decoupage_trame()
+            if self.reception.trame_correct:
+                self.mon_json.creer_json()
+                self.mon_json.preparation_donnee("temps", self.Simulation_banc.t)
+                self.mon_json.preparation_donnee("tension",self.Simulation_banc.u_l)
+                self.mon_json.preparation_donnee("intensiter", self.Simulation_banc.i_l)
+                self.mon_json.charger_json()
+                time.sleep(1)
+                self.retour_donnees.envoi_donnees()
+                self.mon_json.detruire_chemin()
+                break
