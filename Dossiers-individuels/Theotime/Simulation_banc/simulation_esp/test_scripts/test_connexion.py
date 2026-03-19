@@ -1,4 +1,4 @@
-import machine
+import machine # type: ignore
 import select
 import sys
 
