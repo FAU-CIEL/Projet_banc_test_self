@@ -19,7 +19,8 @@ json
 
 formatage trame:
 
-
+separateur : ;
+exemple : SET_CONF;N=10;FE=10
 
 action trame:
 
@@ -32,3 +33,10 @@ RESET = Réinitialise le banc
 OK;CMD = Accusé de reception d'une commande
 MEAS = Mesure complète : tension, courant, inductance, courant de saturation
 ERR;[Code] = Message d'erreur: commande inconnue, paramètre invalide, etc.
+
+
+ordre classique de sim:
+
+SET_CONF;N=parm1;F=parm2
+START
+MEAS
