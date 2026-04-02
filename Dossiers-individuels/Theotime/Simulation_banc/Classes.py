@@ -19,7 +19,6 @@ class Gestion_Reception:
         """
         Premier arg =>
         Deuxieme arg =>
-        Troisieme arg =>
         """
 
     def reception_trame(self):
@@ -183,44 +182,46 @@ class Gestion_envoi:
 # classe qui gere les autres fonctions
 class Gestion_fonction:
     def __init__(self):
-        self.reception = Gestion_Reception()
-        self.Simulation_banc = Simulation()
-        self.mon_json = Gestion_json()
-        self.retour_donnees = Gestion_envoi()
+        self.__reception = Gestion_Reception()
+        self.__Simulation_banc = Simulation()
+        self.__mon_json = Gestion_json()
+        self.__retour_donnees = Gestion_envoi()
 
     def loop(self):
         led_pret.off()
         while True:
             led_pret.on()
             
-            self.mon_json.detruire_json() # fonction a revoir
+            self.__mon_json.detruire_json() # fonction a revoir
             # ==============================
             # Reception trame
             # ==============================
-            self.reception.reception_trame()
-            self.reception.decoupage_trame()
-            if self.reception.trame_correct:
+            self.__reception.reception_trame()
+            self.__reception.decoupage_trame()
+            if self.__reception.trame_correct:
 
                 led_pret.off()
 
                 # ==============================
                 # Simulation
                 # ==============================
-                self.Simulation_banc.init_parametre(0.330, 0.5, 50, 1/100, 5)
-                self.Simulation_banc.simulation()
+                self.__Simulation_banc.init_parametre(L=0.330, C=0.5, U0=50, dt=1/10, duree=5)
+                self.__Simulation_banc.simulation()
 
                 # ==============================
                 # Json
                 # ==============================
-                self.mon_json.creer_json()
-                self.mon_json.preparation_donnee("temps", self.Simulation_banc.t)
-                self.mon_json.preparation_donnee("tension",self.Simulation_banc.u_l)
-                self.mon_json.preparation_donnee("intensite", self.Simulation_banc.i_l)
-                self.mon_json.charger_json()
+                self.__mon_json.creer_json()
+                self.__mon_json.preparation_donnee("temps", self.__Simulation_banc.t)
+                self.__mon_json.preparation_donnee("tension",self.__Simulation_banc.u_l)
+                self.__mon_json.preparation_donnee("intensite", self.__Simulation_banc.i_l)
+                self.__mon_json.charger_json()
                 time.sleep(1)
 
                 # ==============================
                 # envoie données + preparation futur sim
                 # ==============================
-                self.retour_donnees.envoi_donnees()
-                self.reception.trame_correct = False
+                self.__retour_donnees.envoi_donnees()
+                self.__reception.trame_correct = False
+                print("\n")
+                break
