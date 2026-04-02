@@ -1,7 +1,6 @@
 import machine                      # Classe pour la led        # type: ignore 
 import select                       # classe detection evenements
-import errno                        # classe erreurs
-import json                         # classe .Json
+import json                         # classe pour le json
 import math                         # classe operations mathematiques
 import time                         # classe pour le temps
 import sys                          # classe systeme (environement + entrée/sortie)
@@ -17,7 +16,7 @@ class Gestion_Reception:
         self.__trame = ""
         self.trame_correct = False
         self.__liste_code_err = [1, 2, 3, 4, 5, 6, 7, 8, 9] # a revoir
-        self.__liste_commande = ["SET_CONF", "START", "STOP", "GET_MEAS", "GET_STATUS", "RESET", "MEAS", "ERR;", "recevoir\n"]
+        self.__liste_commande = ["SET_CONF", "START", "STOP", "GET_MEAS", "GET_STATUS", "RESET", "MEAS", "ERR;", "recevoir"]
         self.action = ""
         self.parametre_sim = [0, 0]        
         """
@@ -36,7 +35,7 @@ class Gestion_Reception:
     def __chaine_presente(self, commande) -> bool:
         return True if commande in self.__trame else False
 
-    def decoupage_trame(self) -> None:
+    def __decoupage_trame(self) -> None:
         if self.__chaine_presente(self.__liste_commande[0]): # SET_CONF
             trame_split = self.__trame.split(";")
             self.parametre_sim[0] = int(trame_split[1].split('=')[1])
@@ -47,7 +46,7 @@ class Gestion_Reception:
             if self.__chaine_presente(self.__liste_commande[i]):
                 self.trame_correct = True
                 self.action = self.__liste_commande[i]
-                self.decoupage_trame()
+                self.__decoupage_trame()
                 break
             else:
                 self.trame_correct = False
@@ -265,7 +264,7 @@ class Gestion_fonction:
                     self.__envoi_et_preparation_futur_test()
                     break
                 
-                if self.__reception.action == "recevoir\n":
+                if self.__reception.action == "recevoir":
                     led_pret.off()
                     print("OK;CMD;" + self.__reception.action)
                     self.__Simulation_banc.init_parametre(L=0.330, C=0.5, U0=50, dt=1/10, nb_step=50)
