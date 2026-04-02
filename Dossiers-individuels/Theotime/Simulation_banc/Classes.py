@@ -226,55 +226,52 @@ class Gestion_fonction:
             if self.__reception.trame_correct:
 
                 if self.__reception.action == "SET_CONF":
-                    print("OK;CMD")
                     led_pret.off()
+                    print("OK;CMD;" + self.__reception.action)
                     self.__Simulation_banc.init_parametre(L=0.330, 
                                                           C=0.5, 
                                                           U0=50, 
                                                           dt=1/self.__reception.parametre_sim[1], 
                                                           nb_step=self.__reception.parametre_sim[0])
-                    break
 
                 if self.__reception.action == "START":
-                    print("OK;CMD")
                     led_pret.off()
+                    print("OK;CMD;" + self.__reception.action)
                     self.__Simulation_banc.simulation()
-                    break
 
                 if self.__reception.action == "STOP":
-                    print("OK;CMD")
                     led_pret.off()
-                    break
+                    print("OK;CMD;" + self.__reception.action)
                 
                 if self.__reception.action == "GET_MEAS":
-                    print("OK;CMD")
                     led_pret.off()
-                    break
+                    print("OK;CMD;" + self.__reception.action)
 
                 if self.__reception.action == "GET_STATUS":
-                    print("OK;CMD")
                     led_pret.off()
+                    print("OK;CMD;" + self.__reception.action)
                     print("simulation prete")
-                    break
 
                 if self.__reception.action == "RESET":
-                    print("OK;CMD")
                     led_pret.off()
+                    print("OK;CMD;" + self.__reception.action)
                     machine.reset()
                     break
                     
                 if self.__reception.action == "MEAS":
-                    print("OK;CMD")
                     led_pret.off()
+                    print("OK;CMD;" + self.__reception.action)
                     self.__prepa_json()
                     self.__envoi_et_preparation_futur_test()
                     break
                 
                 if self.__reception.action == "recevoir\n":
-                    print("OK;CMD")
                     led_pret.off()
+                    print("OK;CMD;" + self.__reception.action)
                     self.__Simulation_banc.init_parametre(L=0.330, C=0.5, U0=50, dt=1/10, nb_step=50)
                     self.__Simulation_banc.simulation()
                     self.__prepa_json()
                     self.__envoi_et_preparation_futur_test()
                     break
+
+                self.__reception.trame_correct = False
