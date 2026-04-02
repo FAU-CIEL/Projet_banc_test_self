@@ -9,6 +9,7 @@ while True:
     #banc_de_self.Simulation_banc.u_l = [5.0,10.0,15.0,20.0,25.0]
     banc_de_self.loop()
 
-    time.sleep(10)
+    time.sleep(10) # evite le pipelining
+
     # permet de suprimer les données les objets python et variables de la memoire. permet d'eviter "memory allocation fail"
     machine.soft_reset()
