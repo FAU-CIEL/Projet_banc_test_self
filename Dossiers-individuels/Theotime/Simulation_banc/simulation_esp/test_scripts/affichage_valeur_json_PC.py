@@ -32,7 +32,3 @@ if __name__ == "__main__":
     plt.grid()
 
     plt.show()
-
-
-
-# regarder machine.epromm/esp32

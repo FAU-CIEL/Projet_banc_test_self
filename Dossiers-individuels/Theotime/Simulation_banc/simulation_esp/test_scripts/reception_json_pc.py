@@ -47,6 +47,3 @@ if __name__ == "__main__":
     print("temps : ", data["temps"])
     print("intnensiter : ", data["intensite"])
     print("tension : ", data["tension"])"""
-
-# convertir byte en type pour json
-# erreur decode
