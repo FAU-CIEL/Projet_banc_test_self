@@ -362,8 +362,12 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+<<<<<<< HEAD
 # Ignorer tout le dossier Erwan
 Dossiers-individuels/Erwan/IHM_BancTest
+=======
+
+>>>>>>> DEV
 
 # (optionnel) Ignorer fichiers temporaires
 *.bak

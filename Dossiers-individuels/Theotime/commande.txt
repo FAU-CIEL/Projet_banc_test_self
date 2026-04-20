@@ -5,12 +5,49 @@ version 4: ampy --port COM20 put "D:\fauret.SNIRW\Projet_banc_test_self\Dossiers
 version 5: mpremote connect COM20 fs cp D:\fauret.SNIRW\Projet_banc_test_self\Dossiers-individuels\Theotime\Simulation_banc\Simulation.mpy :Simulation.mpy
 // solution pas utiliser
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> DEV
 install microPython :
 esptool --chip esp32 --port COM20 erase-flash
 esptool --chip esp32 --port COM20 write-flash 0x1000 D:/fauret.SNIRW/Projet_banc_test_self/Dossiers-individuels/Theotime/ESP32_GENERIC-D2WD-20251209-v1.27.0.bin
 
+<<<<<<< HEAD
 
 Compiler .py en .mpy:
 mpy-cross Simulation.py
+=======
+Compiler .py en .mpy:
+mpy-cross fichier.py
+
+json
+-> temps
+-> tension
+-> intensité
+
+formatage trame:
+
+separateur : ;
+exemple : SET_CONF;N=10;FE=10
+
+action trame:
+
+SET_CONF = Configure tension, courant max, fréquence d'échantillonnage
+START = Démarre la charge
+STOP = Arrete la charge
+GET_MEAS = Demande une mesure instantanée
+GET_STATUS = Verifie l'état du banc
+RESET = Réinitialise le banc
+OK;CMD = Accusé de reception d'une commande
+MEAS = Mesure complète : tension, courant, inductance, courant de saturation
+ERR;[Code] = Message d'erreur: commande inconnue, paramètre invalide, etc.
+
+
+ordre classique de sim:
+
+SET_CONF;N=parm1;F=parm2
+START
+MEAS
+>>>>>>> DEV
