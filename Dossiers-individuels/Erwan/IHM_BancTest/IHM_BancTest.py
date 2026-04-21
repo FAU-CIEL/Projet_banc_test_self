@@ -29,15 +29,16 @@ import time
 
 IHM = tk.Tk()
 IHM.title("Interface Banc de Test")
-IHM.geometry("1200x700")
+IHM.geometry("1600x700")
 
 # ------------------------------------------------------------
-# INITIALISATION DES CLASSES #
+# INITIALISATION DES CLASSES 
+# ------------------------------------------------------------
 
 # ============================================================
 # FONCTIONS DETECTION ESP32
 # ============================================================
-class CDetection_esp32 :
+class CGestion_Connexion :
     def __init__(self):
             self.ser=None
             self.donnees=[]
@@ -45,13 +46,13 @@ class CDetection_esp32 :
     def detecter_esp32(self):
         ## @fonc detecter_esp32
         # Verification de la connexion entre l'ESP32 et l'IHM
-        #Le programme va rechercher dans les ports COM si l'un d'entre eux possèdent en description "CP210" afin de se connecter
+        #Le programme va rechercher dans les ports COM si l'un d'entre eux possèdent en description "CP210" "ESP32" "USB Serial" "USB UART" afin de se connecter
         
 
         ports = serial.tools.list_ports.comports()
 
         for port in ports:
-            if "CP210" in port.description:
+            if "CP210" in port.description or "USB Serial" in port.description or "ESP32" in port.description or "USB UART" in port.description :
                 try:
                     self.ser = serial.Serial(port.device,115200)
 
@@ -109,22 +110,21 @@ class CDetection_esp32 :
 
                     break
         self.val_temps = donnee["temps"]
-        self.val_imp = donnee["tension"]
+        self.val_tens = donnee["tension"]
         self.val_intensite = donnee["intensite"]
-        return self.val_temps , self.val_imp , self.val_intensite
+        return self.val_temps , self.val_tens , self.val_intensite
 
     def demarrer_mesure(self):
         
         ## @var demarrer_mesure
         #  Recupération et affichage des paramètres choisis pour le test 
-        gestion_fonction = CGestion_Graphique()
-        gestion_fonction.graphique()
-        t,imp,inten=self.recup_info()
+        t,tens,inten=self.recup_info()
         ech=1
         for i in range (len(t)):
-           tableau.insert("", "end", values=(ech, imp[i], t[i]))
+           tableau.insert("", "end", values=(ech, tens[i],inten[i],tens[1]/inten[8] ,t[i]))
            ech+=1
-        
+        gestion_fonction = CGestion_Graphique()
+        gestion_fonction.graphique()
 
 # ============================================================
 # FONCTIONS DE GESTION DES FICHIERS CSV
@@ -146,7 +146,7 @@ class CGestion_Fichier_CSV :
         try:
             with open(filepath, mode="w", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file, delimiter=";")
-                writer.writerow(["Echantillon", "Impedance [mH]","Temps [s]"])
+                writer.writerow(["Echantillon", "Inductance","Temps [s]"])
 
                 for item in tableau.get_children():
                     writer.writerow(tableau.item(item, "values"))
@@ -211,8 +211,8 @@ class CGestion_Fonction:
     # FONCTION HISTORIQUE
     # ============================================================
     def historique(self):
-        
-        
+        detection_esp32=CGestion_Connexion()
+        t,tens,inten= detection_esp32.recup_info()
         
         if self.HIST is None or not self.HIST.winfo_exists(): 
                self.HIST = tk.Tk()
@@ -231,10 +231,12 @@ class CGestion_Fonction:
                    height=8
                )
                table.heading("E", text="Echantillon")
-               table.heading("I", text="Impédance")
+               table.heading("I", text="Inductance")
                table.heading("T", text="Temps [s]")
                table.grid(row=1, column=0, sticky="nsew")
-                   
+               for i in range (len(t)):
+                    table.insert("", "end", values=(detection_esp32.ech, detection_esp32.tens[i],detection_esp32.t[i]))
+                    ech+=1    
 
      # ============================================================
     # FONCTION BASE DE DONNEE
@@ -283,7 +285,7 @@ class CGestion_BDD:
                bouton_Creer.grid(row=3, column=0, pady=5)
            
        
-    def RSQL(self):
+    def rsql(self):
            ## @var RSQL
            #@brief Création de la Base de Donnée avec une requête SQL
             
@@ -298,7 +300,7 @@ class CGestion_BDD:
                 Date TEXT,
                 Nom_Tech TEXT,
                 Echantillon INT,
-                Impedance FLOAT,
+                Inductance FLOAT,
                 Temps FLOAT
             )
             """)
@@ -315,47 +317,68 @@ class CGestion_BDD:
             conn.commit()
             conn.close()
 
-            print("Base de données créée avec succès !")
+            print("Le Test a été enregistré !")
     def ajout_BDD(self):
+
+        ## @var conn
+        #@brief Connexion de l'interface a la base donnée afin de transférer des données
         conn = sqlite3.connect("Base_Projet.db")
         cursor = conn.cursor()
-        requete="INSERT INTO Test (Echantillon, Impedance, Temps) VALUES (?, ?, ?)"
-        for ligne in detection_esp32.donnees:
-            cursor.execute(requete,ligne)
+        ## @var requete
+        #@brief Création d'une requete pour inserer dans la table les valeurs des echantillons ,l'impédance , le temps
+        requete="INSERT INTO Test (Echantillon,Inductance, Temps) VALUES (?, ?, ?)"
+        for valeur in tableau.get_children():
+            ligne = tableau.item(valeur, "values")
+            cursor.execute(requete,(ligne[0],ligne[1],ligne[4]))
         conn.commit()
         conn.close()
 
 # ============================================================
 # FONCTION GRAPHIQUE
 # ============================================================
-class CGestion_Graphique :
-    ## @class CGestion_Graphique
-    # Classe de gestion du graphique d'affichage des valeurs
+class CGestion_Graphique:
     def __init__(self):
-        self.x, self.y = [], []
-    def graphique(self):
-        ## @var graphique
-        # Paramètre du graphique ( Son affichage , ses valeurs )
         self.x = []
         self.y = []
-        ax.clear()
-        
 
+    def graphique(self):
+        self.x = []
+        self.y = []
+        self.yi= []
+        self.yimp= []
+        
+        ax.clear()
+
+        
         for item in tableau.get_children():
-            values = tableau.item(item, "values")
+        ## @var valeurs
+        #@brief Renvoie aux données dans le tableau , il récupère les valeurs de chaque colonne pour les utiliser dans le graphique
+            valeurs = tableau.item(item, "values")
+
             try:
-                self.x.append(float(values[2]))
-                self.y.append(float(values[1]))
-            except:
+                temps = float(valeurs[4])       
+                tension = float(valeurs[1])   
+                intensite = float(valeurs [2])
+                impedance = float(valeurs[3])
+                self.x.append(temps)
+                self.y.append(tension)
+                self.yi.append(intensite)
+                self.yimp.append(impedance)
+
+            except ValueError:
                 pass
 
-        ax.plot(self.x, self.y, marker="o", color="blue", label="Impédance [mH]")
+        # Tracé du graphique
+        ax.plot(self.x, self.y, marker=".", label="Tension")
+        ax.plot(self.x, self.yi, marker=".", label="Intensité")
+        ax.plot(self.x, self.yimp, marker=".", label="Inductance")
+        ax.set_title("Courbe  / Temps")
         ax.set_xlabel("Temps [s]")
-        ax.set_ylabel("Impédance [A]")
-        ax.legend()
+        ax.set_ylabel("Tension/Intensité/Inductance")
         ax.grid(True)
+        ax.legend()
 
-        fig.tight_layout()
+        # Rafraîchir l'affichage
         graph.draw()
 
 # ============================================================
@@ -404,9 +427,9 @@ class CGestion_Limite :
     Feq = ttk.Entry(partie_parametre, validate="key", validatecommand=validationFeq)
     Feq.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
 
-# ============================================================
-# CONFIGURATION DU MENU
-# ============================================================
+# ------------------------------------------------------------
+# INITIALISATION DU MENU 
+# ------------------------------------------------------------
 
 ## @class CGestion_Interface
 #@brief Classe permettant de regrouper toute l'interface de l'IHM que ce soit les boutons , les labels ou les entry
@@ -415,7 +438,7 @@ menu = tk.Menu(IHM)
 gestion_csv = CGestion_Fichier_CSV()
 gestion_fonction = CGestion_Fonction()
 gestion_bdd=CGestion_BDD()
-detection_esp32=CDetection_esp32()
+detection_esp32=CGestion_Connexion()
 ## @var menu
 #@brief  Création d'un menu pour acceder au paramètre 
 menu_fichier = tk.Menu(menu, tearoff=0)
@@ -531,10 +554,13 @@ graph = FigureCanvasTkAgg(fig, master=partie_resultat)
 graph.get_tk_widget().grid(row=0, column=0, sticky="nsew", pady=5)
 
 # ----- Table -----
-tableau = ttk.Treeview(partie_resultat, columns=("E", "I","T"), show="headings", height=8 )
+tableau = ttk.Treeview(partie_resultat, columns=("E","Tens","Int","I","T"), show="headings", height=8 )
 tableau.heading("E", text="Echantillon")
-tableau.heading("I", text="Impédance")
+tableau.heading("I", text="Inductance")
 tableau.heading("T", text="Temps [s]")
+tableau.heading("Tens", text="Tension [v]")
+tableau.heading("Int", text="Intensité [A]")
+
 tableau.grid(row=1, column=0, sticky="nsew")
 
 
