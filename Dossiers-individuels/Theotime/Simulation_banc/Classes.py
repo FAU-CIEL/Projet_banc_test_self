@@ -6,25 +6,28 @@ import time                         # classe pour le temps
 import sys                          # classe systeme (environement + entrée/sortie)
 import io                           # classe flux entree/sortie
 import os                           # classe systeme (gestion fichiers)
+import re                           # classe pour les expressions regulieres
 
 
 led_pret = machine.Pin(2, machine.Pin.OUT)
+LISTE_COMMANDS  = ["SET_CONF", "START", "STOP", "GET_MEAS", "GET_STATUS", "RESET", "MEAS", "recevoir"]
 
 # classe pour la reception des trames de commande/parametrage
 class Gestion_Reception:
     def __init__(self) -> None:
         self.__trame = ""
         self.trame_correct = False
-        self.__liste_code_err = [1, 2, 3, 4, 5, 6, 7, 8, 9] # a revoir
-        self.__liste_commande = ["SET_CONF", "START", "STOP", "GET_MEAS", "GET_STATUS", "RESET", "MEAS", "ERR;", "recevoir"]
         self.action = ""
-        self.parametre_sim = [0, 0]        
+        self.parametre_sim = [0, 0]
         """
         Premier arg => nb echantillon
         Deuxieme arg => frequence d'echantillonage
         """
 
-    def reception_trame(self) -> None:
+    def get_trame(self) -> str:
+        return self.__trame
+
+    def __reception_trame(self) -> None:
         self.__trame = ""
         if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
             self.__trame = sys.stdin.readline()
@@ -35,21 +38,35 @@ class Gestion_Reception:
     def __chaine_presente(self, commande) -> bool:
         return True if commande in self.__trame else False
 
-    def __decoupage_trame(self) -> None:
-        if self.__chaine_presente(self.__liste_commande[0]): # SET_CONF
+    def __decoupage_trame(self) -> None | str:
+        if self.__chaine_presente(LISTE_COMMANDS[0]): # SET_CONF
             trame_split = self.__trame.split(";")
-            self.parametre_sim[0] = int(trame_split[1].split('=')[1])
-            self.parametre_sim[1] = int(trame_split[2].split('=')[1])
+            try:
+                self.parametre_sim[0] = int(trame_split[1].split('=')[1])
+                self.parametre_sim[1] = int(trame_split[2].split('=')[1])
+            except ValueError:
+                raise "erreur format parametre"
 
-    def action_trame(self) -> None:
-        for i in range(len(self.__liste_commande)):
-            if self.__chaine_presente(self.__liste_commande[i]):
+    def __action_trame(self) -> None | str:
+        for i in range(len(LISTE_COMMANDS)):
+            if self.__chaine_presente(LISTE_COMMANDS[i]):
                 self.trame_correct = True
-                self.action = self.__liste_commande[i]
-                self.__decoupage_trame()
+                self.action = LISTE_COMMANDS[i]
+                try:
+                    self.__decoupage_trame()
+                except:
+                    raise "erreur format parametre"
                 break
             else:
                 self.trame_correct = False
+
+    def preparation_trame(self) -> None | str:
+        try:
+            led_pret.on()
+            self.__reception_trame()
+            self.__action_trame()
+        except:
+            raise "erreur format parametre"
 
 
 # classe qui simule le circuit (equa diff + transformer en Z)
@@ -192,6 +209,20 @@ class Gestion_envoi:
                 for line in file:
                     sys.stdout.write(line.strip())
 
+#classe qui gere les differentes erreurs
+class Gestion_erreur:
+    def __init__(self):
+        self.erreur_present = False
+    
+    def erreur_trame(self, trame) -> str:
+        if not re.search(trame, LISTE_COMMANDS):
+            self.erreur_present = True
+            return "ERR;1;trame non reconnue"
+        
+    def erreur_parametre(self) -> str:
+        self.erreur_present = True
+        return "ERR;2;parametre incorrect"
+
 # classe qui gere les autres fonctions
 class Gestion_fonction:
     def __init__(self) -> None:
@@ -199,6 +230,7 @@ class Gestion_fonction:
         self.__Simulation_banc = Simulation()
         self.__mon_json = Gestion_json()
         self.__retour_donnees = Gestion_envoi()
+        self.__mes_erreurs = Gestion_erreur()
 
     def __prepa_json(self) -> None:
         self.__mon_json.creer_json()
@@ -214,63 +246,91 @@ class Gestion_fonction:
         print("\n")
         self.__mon_json.detruire_json()
 
+    def __set_conf(self) -> None:
+        led_pret.off()
+        print("OK;CMD;" + self.__reception.action)
+        self.__Simulation_banc.init_parametre(L=0.330, 
+                                              C=0.5, 
+                                              U0=50, 
+                                              dt=1/self.__reception.parametre_sim[1], 
+                                              nb_step=self.__reception.parametre_sim[0])
+        
+    def __start(self) -> None:
+        led_pret.off()
+        print("OK;CMD;" + self.__reception.action)
+        self.__Simulation_banc.simulation()
+
+    def __stop(self) -> None:
+        led_pret.off()
+        print("OK;CMD;" + self.__reception.action)
+
+    def __get_meas(self) -> None:
+        led_pret.off()
+        print("OK;CMD;" + self.__reception.action)
+    
+    def __get_status(self) -> None:
+        led_pret.off()
+        print("OK;CMD;" + self.__reception.action)
+        print("simulation prete")
+
+    def __reset(self) -> None:
+        led_pret.off()
+        print("OK;CMD;" + self.__reception.action)
+        machine.reset()
+    
+    def __meas(self) -> None:
+        led_pret.off()
+        print("OK;CMD;" + self.__reception.action)
+        self.__prepa_json()
+        self.__envoi_et_preparation_futur_test()
+
+    def __recevoir(self) -> None:
+        led_pret.off()
+        print("OK;CMD;" + self.__reception.action)
+        self.__Simulation_banc.init_parametre(L=0.330, C=0.5, U0=50, dt=1/10, nb_step=50)
+        self.__Simulation_banc.simulation()
+        self.__prepa_json()
+        self.__envoi_et_preparation_futur_test()
+        
+    def __gestion_action(self) -> bool:
+        if self.__reception.trame_correct:
+            if self.__reception.action == LISTE_COMMANDS[0]:
+                self.__set_conf()
+            elif self.__reception.action == LISTE_COMMANDS[1]:
+                self.__start()
+            elif self.__reception.action == LISTE_COMMANDS[2]:
+                self.__stop()
+            elif self.__reception.action == LISTE_COMMANDS[3]:
+                self.__get_meas()
+            elif self.__reception.action == LISTE_COMMANDS[4]:
+                self.__get_status()
+            elif self.__reception.action == LISTE_COMMANDS[5]:
+                self.__reset()
+            elif self.__reception.action == LISTE_COMMANDS[6]:
+                self.__meas()
+            elif self.__reception.action == LISTE_COMMANDS[7]:
+                self.__recevoir()
+            self.__reception.trame_correct = False
+        if self.__reception.action == LISTE_COMMANDS[5] or self.__reception.action == LISTE_COMMANDS[6] or self.__reception.action == LISTE_COMMANDS[7]:
+            return True
+        else:            
+            return False
+
     def loop(self) -> None:
         led_pret.off()
         while True:
-            led_pret.on()
+            try:
+                self.__reception.preparation_trame()
+            except:
+                print(self.__mes_erreurs.erreur_parametre())
+                break
+
+            if self.__gestion_action():
+                break
             
-            self.__reception.reception_trame()
-            self.__reception.action_trame()
-
-            if self.__reception.trame_correct:
-
-                if self.__reception.action == "SET_CONF":
-                    led_pret.off()
-                    print("OK;CMD;" + self.__reception.action)
-                    self.__Simulation_banc.init_parametre(L=0.330, 
-                                                          C=0.5, 
-                                                          U0=50, 
-                                                          dt=1/self.__reception.parametre_sim[1], 
-                                                          nb_step=self.__reception.parametre_sim[0])
-
-                if self.__reception.action == "START":
-                    led_pret.off()
-                    print("OK;CMD;" + self.__reception.action)
-                    self.__Simulation_banc.simulation()
-
-                if self.__reception.action == "STOP":
-                    led_pret.off()
-                    print("OK;CMD;" + self.__reception.action)
-                
-                if self.__reception.action == "GET_MEAS":
-                    led_pret.off()
-                    print("OK;CMD;" + self.__reception.action)
-
-                if self.__reception.action == "GET_STATUS":
-                    led_pret.off()
-                    print("OK;CMD;" + self.__reception.action)
-                    print("simulation prete")
-
-                if self.__reception.action == "RESET":
-                    led_pret.off()
-                    print("OK;CMD;" + self.__reception.action)
-                    machine.reset()
-                    break
-                    
-                if self.__reception.action == "MEAS":
-                    led_pret.off()
-                    print("OK;CMD;" + self.__reception.action)
-                    self.__prepa_json()
-                    self.__envoi_et_preparation_futur_test()
-                    break
-                
-                if self.__reception.action == "recevoir":
-                    led_pret.off()
-                    print("OK;CMD;" + self.__reception.action)
-                    self.__Simulation_banc.init_parametre(L=0.330, C=0.5, U0=50, dt=1/10, nb_step=50)
-                    self.__Simulation_banc.simulation()
-                    self.__prepa_json()
-                    self.__envoi_et_preparation_futur_test()
-                    break
-
-                self.__reception.trame_correct = False
+            if self.__reception.get_trame() != "":
+                print(self.__mes_erreurs.erreur_trame(self.__reception.get_trame()))
+                break
+        
+        if self.__mes_erreurs.erreur_present:
+            machine.reset()
