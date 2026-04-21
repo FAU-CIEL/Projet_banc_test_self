@@ -68,7 +68,6 @@ class Gestion_Reception:
         except:
             raise "erreur format parametre"
 
-
 # classe qui simule le circuit (equa diff + transformer en Z)
 class Simulation:
     def __init__(self) -> None:
@@ -106,21 +105,21 @@ class Simulation:
 
     def __calcul_tension(self, t) -> float:
         return self.__U0 * math.cos(self.__omega0 * t + self.__phi)
-    
+
     def __calcul_intensite(self, t) -> float:
         return self.__C * self.__U0 * math.sin(self.__omega0 * t)
 
     def __transformer_Z_tension(self, z) -> float:
         return self.__U0 * ((z**2 - z * math.cos(self.__omega0)) / (z**2 - 2 * z * math.cos(self.__omega0) + 1))
-    
+
     def __transformer_Z_intensite(self, z) -> float:
         return self.__C * self.__U0 * self.__omega0 * ((z * math.sin(self.__omega0)) / (z ** 2 -2 * z * math.cos(self.__omega0) + 1))
-    
+
     def simulation(self) -> None:
-        for N in range(self.__n_steps):
-            self.t.append(self.__dt * N)
-            self.u_l.append(self.__transformer_Z_tension(self.t[N]))
-            self.i_l.append(self.__transformer_Z_intensite(self.t[N]))
+        for n in range(self.__n_steps):
+            self.t.append(self.__dt * n)
+            self.u_l.append(self.__transformer_Z_tension(self.t[n]))
+            self.i_l.append(self.__transformer_Z_intensite(self.t[n]))
 
 # classe qui stocke les valeurs dans un json
 class Gestion_json:
@@ -139,18 +138,18 @@ class Gestion_json:
             if type_ == 0x4000 and nom_dossier == self.__chemin_json:  # type 0x4000 = dossier
                 return True
         return False
-    
+
     def __fichier_existant(self) -> bool:
         for file in os.ilistdir(self.__chemin_json):
             nom_file, type_, *_ = file
             if type_ == 0x8000 and nom_file == self.__fichier_json:     # type 0x8000 = fichier
                 return True
         return False
-    
+
     def __creer_chemin_json(self) -> None:
         if not self.__dossier_existant():
             os.mkdir(self.__chemin_json)
-    
+
     def creer_json(self) -> None:
         if sys.platform == "esp32":
             self.__creer_chemin_json()
@@ -159,7 +158,7 @@ class Gestion_json:
 
     def preparation_donnee(self, donnee, valeur) -> None:
         self.__donner_a_stocker[donnee] = valeur
-    
+
     def charger_json(self) -> None:
         with io.open(self.__fichier_json, 't') as file:
             json.dump(self.__donner_a_stocker, file)
@@ -213,12 +212,14 @@ class Gestion_envoi:
 class Gestion_erreur:
     def __init__(self):
         self.erreur_present = False
-    
-    def erreur_trame(self, trame) -> str:
-        if not re.search(trame, LISTE_COMMANDS):
-            self.erreur_present = True
-            return "ERR;1;trame non reconnue"
-        
+
+    def erreur_trame(self, trame) -> None | str:
+        for i in range(len(LISTE_COMMANDS)):
+            if re.search(LISTE_COMMANDS[i], trame):
+                return None
+        self.erreur_present = True
+        return "ERR;1;trame non reconnue"
+
     def erreur_parametre(self) -> str:
         self.erreur_present = True
         return "ERR;2;parametre incorrect"
@@ -254,7 +255,7 @@ class Gestion_fonction:
                                               U0=50, 
                                               dt=1/self.__reception.parametre_sim[1], 
                                               nb_step=self.__reception.parametre_sim[0])
-        
+
     def __start(self) -> None:
         led_pret.off()
         print("OK;CMD;" + self.__reception.action)
@@ -267,7 +268,7 @@ class Gestion_fonction:
     def __get_meas(self) -> None:
         led_pret.off()
         print("OK;CMD;" + self.__reception.action)
-    
+
     def __get_status(self) -> None:
         led_pret.off()
         print("OK;CMD;" + self.__reception.action)
@@ -277,7 +278,7 @@ class Gestion_fonction:
         led_pret.off()
         print("OK;CMD;" + self.__reception.action)
         machine.reset()
-    
+
     def __meas(self) -> None:
         led_pret.off()
         print("OK;CMD;" + self.__reception.action)
@@ -291,7 +292,7 @@ class Gestion_fonction:
         self.__Simulation_banc.simulation()
         self.__prepa_json()
         self.__envoi_et_preparation_futur_test()
-        
+
     def __gestion_action(self) -> bool:
         if self.__reception.trame_correct:
             if self.__reception.action == LISTE_COMMANDS[0]:
@@ -327,10 +328,12 @@ class Gestion_fonction:
 
             if self.__gestion_action():
                 break
-            
+
             if self.__reception.get_trame() != "":
-                print(self.__mes_erreurs.erreur_trame(self.__reception.get_trame()))
-                break
-        
+                erreur = self.__mes_erreurs.erreur_trame(self.__reception.get_trame())
+                if erreur and self.__mes_erreurs.erreur_present:
+                    print(erreur)
+                    break
+
         if self.__mes_erreurs.erreur_present:
             machine.reset()
