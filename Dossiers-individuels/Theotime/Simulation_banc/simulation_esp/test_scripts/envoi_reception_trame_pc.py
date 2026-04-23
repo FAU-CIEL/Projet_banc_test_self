@@ -24,10 +24,10 @@ def recevoir_trame():
             trame_recue = ""
             while not re.search("OK;CMD;",trame_recue):
                 trame_recue = esp32.readline().decode().strip()
-                print(trame_recue)
                 if re.search("ERR;", trame_recue):
                     print("Erreur reçue : " + trame_recue)
                     break
+                print(trame_recue)
 
         except serial.SerialException as e:
             print(f"Erreur série : {e}")

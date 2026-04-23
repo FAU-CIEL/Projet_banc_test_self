@@ -6,7 +6,6 @@ import time                         # classe pour le temps
 import sys                          # classe systeme (environement + entrée/sortie)
 import io                           # classe flux entree/sortie
 import os                           # classe systeme (gestion fichiers)
-import re                           # classe pour les expressions regulieres
 
 
 led_pret = machine.Pin(2, machine.Pin.OUT)
@@ -99,9 +98,9 @@ class Simulation:
         self.__omega0 = 1 / math.sqrt(self.__L * self.__C)
         self.__phi = 0
 
-        self.t = []
-        self.u_l = []
-        self.i_l = []
+        self.t = [0] * self.__n_steps
+        self.u_l = [0] * self.__n_steps
+        self.i_l = [0] * self.__n_steps
 
     def __calcul_tension(self, t) -> float:
         return self.__U0 * math.cos(self.__omega0 * t + self.__phi)
@@ -117,9 +116,10 @@ class Simulation:
 
     def simulation(self) -> None:
         for n in range(self.__n_steps):
-            self.t.append(self.__dt * n)
-            self.u_l.append(self.__transformer_Z_tension(self.t[n]))
-            self.i_l.append(self.__transformer_Z_intensite(self.t[n]))
+            t = self.__dt * n
+            self.t[n] = t
+            self.u_l[n] = self.__transformer_Z_tension(t)
+            self.i_l[n] = self.__transformer_Z_intensite(t)
 
 # classe qui stocke les valeurs dans un json
 class Gestion_json:
@@ -160,7 +160,7 @@ class Gestion_json:
         self.__donner_a_stocker[donnee] = valeur
 
     def charger_json(self) -> None:
-        with io.open(self.__fichier_json, 't') as file:
+        with io.open(self.__fichier_json) as file:
             json.dump(self.__donner_a_stocker, file)
         file.close()
 
@@ -182,6 +182,8 @@ class Gestion_envoi:
     def __init__(self) -> None:
         self.__chemin_fichier_json = "LOG"
         self.__fichier_json = "donnees_self.json"
+        self.poller = select.poll()
+        self.poller.register(sys.stdout, select.POLLOUT)
 
     def __fichier_existant(self) -> bool:
         if sys.platform == "esp32":
@@ -193,9 +195,7 @@ class Gestion_envoi:
         return False
 
     def __sortie_prete(self) -> bool:
-        poller = select.poll()
-        poller.register(sys.stdout, select.POLLOUT)
-        events = poller.poll()
+        events = self.poller.poll()
         for obj, event in events:
             if event == select.POLLOUT:
                 return True
@@ -218,8 +218,8 @@ class Gestion_erreur:
         self.erreur_present = False
 
     def erreur_trame(self, trame) -> None | str:
-        for i in range(len(LISTE_COMMANDS)):
-            if re.search(LISTE_COMMANDS[i], trame):
+        for cmd in LISTE_COMMANDS:
+            if cmd in trame:
                 return None
         self.erreur_present = True
         return "ERR;1;trame non reconnue"
