@@ -38,35 +38,35 @@ class Gestion_Reception:
     def __chaine_presente(self, commande) -> bool:
         return True if commande in self.__trame else False
 
-    def __decoupage_trame(self) -> None | str:
+    def __decoupage_trame(self) -> None | Exception:
         if self.__chaine_presente(LISTE_COMMANDS[0]): # SET_CONF
             trame_split = self.__trame.split(";")
             try:
                 self.parametre_sim[0] = int(trame_split[1].split('=')[1])
                 self.parametre_sim[1] = int(trame_split[2].split('=')[1])
-            except ValueError:
-                raise "erreur format parametre"
+            except Exception:
+                raise Exception("erreur format parametre")
 
-    def __action_trame(self) -> None | str:
+    def __action_trame(self) -> None | Exception:
         for i in range(len(LISTE_COMMANDS)):
             if self.__chaine_presente(LISTE_COMMANDS[i]):
                 self.trame_correct = True
                 self.action = LISTE_COMMANDS[i]
                 try:
                     self.__decoupage_trame()
-                except:
-                    raise "erreur format parametre"
+                except Exception:
+                    raise Exception("erreur format parametre")
                 break
             else:
                 self.trame_correct = False
 
-    def preparation_trame(self) -> None | str:
+    def preparation_trame(self) -> None | Exception:
         try:
             led_pret.on()
             self.__reception_trame()
             self.__action_trame()
-        except:
-            raise "erreur format parametre"
+        except Exception:
+            raise Exception("erreur format parametre")
 
 # classe qui simule le circuit (equa diff + transformer en Z)
 class Simulation:
@@ -202,11 +202,15 @@ class Gestion_envoi:
             else:
                 return False
 
-    def envoi_donnees(self) -> None:
-        if self.__sortie_prete() and self.__fichier_existant():
-            with io.open(self.__fichier_json, 'r') as file:
-                for line in file:
-                    sys.stdout.write(line.strip())
+    def envoi_donnees(self) -> None | Exception:
+        try:
+            if self.__sortie_prete() and self.__fichier_existant():
+                with io.open(self.__fichier_json, 'r') as file:
+                    for line in file:
+                        sys.stdout.write(line.strip())
+                file.close()
+        except Exception:
+            raise Exception("erreur de memoire")
 
 #classe qui gere les differentes erreurs
 class Gestion_erreur:
@@ -223,6 +227,10 @@ class Gestion_erreur:
     def erreur_parametre(self) -> str:
         self.erreur_present = True
         return "ERR;2;parametre incorrect"
+
+    def erreur_memoire(self) -> str:
+        self.erreur_present = True
+        return "ERR;3;erreur de memoire"
 
 # classe qui gere les autres fonctions
 class Gestion_fonction:
@@ -241,25 +249,29 @@ class Gestion_fonction:
         self.__mon_json.charger_json()
         time.sleep(1)
 
-    def __envoi_et_preparation_futur_test(self) -> None:
-        self.__retour_donnees.envoi_donnees()
-        self.__reception.trame_correct = False
-        print("\n")
-        self.__mon_json.detruire_json()
+    def __envoi_et_preparation_futur_test(self) -> None | Exception:
+        try:
+            self.__retour_donnees.envoi_donnees()
+            self.__reception.trame_correct = False
+            print("\n")
+            self.__mon_json.detruire_json()
+        except Exception:
+            self.__mon_json.detruire_json()
+            raise Exception("erreur de memoire")
 
     def __set_conf(self) -> None:
         led_pret.off()
-        print("OK;CMD;" + self.__reception.action)
         self.__Simulation_banc.init_parametre(L=0.330, 
                                               C=0.5, 
                                               U0=50, 
                                               dt=1/self.__reception.parametre_sim[1], 
                                               nb_step=self.__reception.parametre_sim[0])
+        print("OK;CMD;" + self.__reception.action)
 
     def __start(self) -> None:
         led_pret.off()
-        print("OK;CMD;" + self.__reception.action)
         self.__Simulation_banc.simulation()
+        print("OK;CMD;" + self.__reception.action)
 
     def __stop(self) -> None:
         led_pret.off()
@@ -271,47 +283,53 @@ class Gestion_fonction:
 
     def __get_status(self) -> None:
         led_pret.off()
-        print("OK;CMD;" + self.__reception.action)
         print("simulation prete")
+        print("OK;CMD;" + self.__reception.action)
 
     def __reset(self) -> None:
         led_pret.off()
         print("OK;CMD;" + self.__reception.action)
         machine.reset()
 
-    def __meas(self) -> None:
+    def __meas(self) -> None | Exception:
         led_pret.off()
-        print("OK;CMD;" + self.__reception.action)
-        self.__prepa_json()
-        self.__envoi_et_preparation_futur_test()
+        try:
+            self.__prepa_json()
+            self.__envoi_et_preparation_futur_test()
+            print("OK;CMD;" + self.__reception.action)
+        except Exception:
+            raise Exception("erreur de memoire")
 
     def __recevoir(self) -> None:
         led_pret.off()
-        print("OK;CMD;" + self.__reception.action)
         self.__Simulation_banc.init_parametre(L=0.330, C=0.5, U0=50, dt=1/10, nb_step=50)
         self.__Simulation_banc.simulation()
         self.__prepa_json()
         self.__envoi_et_preparation_futur_test()
+        print("OK;CMD;" + self.__reception.action)
 
-    def __gestion_action(self) -> bool:
+    def __gestion_action(self) -> bool | Exception:
         if self.__reception.trame_correct:
-            if self.__reception.action == LISTE_COMMANDS[0]:
-                self.__set_conf()
-            elif self.__reception.action == LISTE_COMMANDS[1]:
-                self.__start()
-            elif self.__reception.action == LISTE_COMMANDS[2]:
-                self.__stop()
-            elif self.__reception.action == LISTE_COMMANDS[3]:
-                self.__get_meas()
-            elif self.__reception.action == LISTE_COMMANDS[4]:
-                self.__get_status()
-            elif self.__reception.action == LISTE_COMMANDS[5]:
-                self.__reset()
-            elif self.__reception.action == LISTE_COMMANDS[6]:
-                self.__meas()
-            elif self.__reception.action == LISTE_COMMANDS[7]:
-                self.__recevoir()
-            self.__reception.trame_correct = False
+            try:
+                if self.__reception.action == LISTE_COMMANDS[0]:
+                    self.__set_conf()
+                elif self.__reception.action == LISTE_COMMANDS[1]:
+                    self.__start()
+                elif self.__reception.action == LISTE_COMMANDS[2]:
+                    self.__stop()
+                elif self.__reception.action == LISTE_COMMANDS[3]:
+                    self.__get_meas()
+                elif self.__reception.action == LISTE_COMMANDS[4]:
+                    self.__get_status()
+                elif self.__reception.action == LISTE_COMMANDS[5]:
+                    self.__reset()
+                elif self.__reception.action == LISTE_COMMANDS[6]:
+                    self.__meas()
+                elif self.__reception.action == LISTE_COMMANDS[7]:
+                    self.__recevoir()
+                self.__reception.trame_correct = False
+            except Exception:
+                raise Exception("erreur de memoire")
         if self.__reception.action == LISTE_COMMANDS[5] or self.__reception.action == LISTE_COMMANDS[6] or self.__reception.action == LISTE_COMMANDS[7]:
             return True
         else:            
@@ -322,12 +340,16 @@ class Gestion_fonction:
         while True:
             try:
                 self.__reception.preparation_trame()
-            except:
-                print(self.__mes_erreurs.erreur_parametre())
-                break
+                if self.__gestion_action():
+                    break
 
-            if self.__gestion_action():
-                break
+            except Exception as e:
+                if str(e) == "erreur format parametre":
+                    print(self.__mes_erreurs.erreur_parametre())
+                    break
+                elif str(e) == "erreur de memoire":
+                    print(self.__mes_erreurs.erreur_memoire())
+                    break
 
             if self.__reception.get_trame() != "":
                 erreur = self.__mes_erreurs.erreur_trame(self.__reception.get_trame())

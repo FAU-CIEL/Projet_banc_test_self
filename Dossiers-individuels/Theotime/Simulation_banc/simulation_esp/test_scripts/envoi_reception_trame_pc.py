@@ -1,5 +1,6 @@
 import serial
 import time
+import re
 
 PORT = "COM20"
 BAUDRATE = 115200
@@ -21,14 +22,23 @@ def recevoir_trame():
     if esp32 is not None:
         try:
             trame_recue = ""
-            while True:
+            while not re.search("OK;CMD;",trame_recue):
                 trame_recue = esp32.readline().decode().strip()
                 print(trame_recue)
-            #return trame_recue
+                if re.search("ERR;", trame_recue):
+                    print("Erreur reçue : " + trame_recue)
+                    break
+
         except serial.SerialException as e:
             print(f"Erreur série : {e}")
 
 if __name__ == "__main__":
-    trame = ["SET_CONF", "START", "STOP", "GET_MEAS", "GET_STATUS", "RESET", "MEAS", "recevoir"]
-    envoyer_trame(trame[6])# + ";nb=50;f=8")
-    print(recevoir_trame())
+    trame = ["SET_CONF", "START", "STOP", "GET_MEAS", "GET_STATUS", "RESET", "MEAS", "recevoir", "test"]
+    #envoyer_trame(trame[0] + ";nb=a;f=20")
+    #recevoir_trame()
+    #envoyer_trame(trame[1])
+    #recevoir_trame()
+    #envoyer_trame(trame[6])
+    #recevoir_trame()
+    envoyer_trame(trame[-1]) #test trame non reconnue
+    recevoir_trame()
