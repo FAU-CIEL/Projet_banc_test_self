@@ -9,7 +9,7 @@ import os                           # classe systeme (gestion fichiers)
 
 
 led_pret = machine.Pin(2, machine.Pin.OUT)
-LISTE_COMMANDS  = ["SET_CONF", "START", "STOP", "GET_MEAS", "GET_STATUS", "RESET", "MEAS", "recevoir"]
+LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir"]
 
 # classe pour la reception des trames de commande/parametrage
 class Gestion_Reception:
@@ -53,8 +53,8 @@ class Gestion_Reception:
                 self.action = LISTE_COMMANDS[i]
                 try:
                     self.__decoupage_trame()
-                except Exception:
-                    raise Exception("erreur format parametre")
+                except Exception as e:
+                    raise Exception(e)
                 break
             else:
                 self.trame_correct = False
@@ -64,8 +64,8 @@ class Gestion_Reception:
             led_pret.on()
             self.__reception_trame()
             self.__action_trame()
-        except Exception:
-            raise Exception("erreur format parametre")
+        except Exception as e:
+            raise Exception(e)
 
 # classe qui simule le circuit (equa diff + transformer en Z)
 class Simulation:
@@ -101,6 +101,12 @@ class Simulation:
         self.t = [0] * self.__n_steps
         self.u_l = [0] * self.__n_steps
         self.i_l = [0] * self.__n_steps
+
+    def get_dt(self) -> float:
+        return self.__dt
+    
+    def get_n_steps(self) -> int:
+        return self.__n_steps
 
     def __calcul_tension(self, t) -> float:
         return self.__U0 * math.cos(self.__omega0 * t + self.__phi)
@@ -255,9 +261,9 @@ class Gestion_fonction:
             self.__reception.trame_correct = False
             print("\n")
             self.__mon_json.detruire_json()
-        except Exception:
+        except Exception as e:
             self.__mon_json.detruire_json()
-            raise Exception("erreur de memoire")
+            raise Exception(e)
 
     def __set_conf(self) -> None:
         led_pret.off()
@@ -268,21 +274,21 @@ class Gestion_fonction:
                                               nb_step=self.__reception.parametre_sim[0])
         print("OK;CMD;" + self.__reception.action)
 
-    def __start(self) -> None:
+    def __start(self) -> None | Exception:
         led_pret.off()
         self.__Simulation_banc.simulation()
-        print("OK;CMD;" + self.__reception.action)
-
-    def __stop(self) -> None:
-        led_pret.off()
-        print("OK;CMD;" + self.__reception.action)
-
-    def __get_meas(self) -> None:
-        led_pret.off()
-        print("OK;CMD;" + self.__reception.action)
+        try:
+            self.__prepa_json()
+            self.__envoi_et_preparation_futur_test()
+            print("\n")
+            print("OK;CMD;" + self.__reception.action)
+        except Exception as e:
+            raise Exception(e)
 
     def __get_status(self) -> None:
         led_pret.off()
+        valeur_simulation = f"Parametre;nb_echantillon={self.__Simulation_banc.get_n_steps()};frequence_echantillonage={1/self.__Simulation_banc.get_dt()}"
+        print(valeur_simulation)
         print("simulation prete")
         print("OK;CMD;" + self.__reception.action)
 
@@ -290,16 +296,7 @@ class Gestion_fonction:
         led_pret.off()
         print("OK;CMD;" + self.__reception.action)
         machine.reset()
-
-    def __meas(self) -> None | Exception:
-        led_pret.off()
-        try:
-            self.__prepa_json()
-            self.__envoi_et_preparation_futur_test()
-            print("OK;CMD;" + self.__reception.action)
-        except Exception:
-            raise Exception("erreur de memoire")
-
+   
     def __recevoir(self) -> None:
         led_pret.off()
         self.__Simulation_banc.init_parametre(L=0.330, C=0.5, U0=50, dt=1/10, nb_step=50)
@@ -316,21 +313,16 @@ class Gestion_fonction:
                 elif self.__reception.action == LISTE_COMMANDS[1]:
                     self.__start()
                 elif self.__reception.action == LISTE_COMMANDS[2]:
-                    self.__stop()
-                elif self.__reception.action == LISTE_COMMANDS[3]:
-                    self.__get_meas()
-                elif self.__reception.action == LISTE_COMMANDS[4]:
                     self.__get_status()
-                elif self.__reception.action == LISTE_COMMANDS[5]:
+                elif self.__reception.action == LISTE_COMMANDS[3]:
                     self.__reset()
-                elif self.__reception.action == LISTE_COMMANDS[6]:
-                    self.__meas()
-                elif self.__reception.action == LISTE_COMMANDS[7]:
+                elif self.__reception.action == LISTE_COMMANDS[4]:
                     self.__recevoir()
                 self.__reception.trame_correct = False
-            except Exception:
-                raise Exception("erreur de memoire")
-        if self.__reception.action == LISTE_COMMANDS[5] or self.__reception.action == LISTE_COMMANDS[6] or self.__reception.action == LISTE_COMMANDS[7]:
+                self.__reception.action = ""
+            except Exception as e:
+                raise Exception(e)
+        if self.__reception.action == LISTE_COMMANDS[1] or self.__reception.action == LISTE_COMMANDS[3] or self.__reception.action == LISTE_COMMANDS[4]:
             return True
         else:            
             return False

@@ -33,12 +33,21 @@ def recevoir_trame():
             print(f"Erreur série : {e}")
 
 if __name__ == "__main__":
-    trame = ["SET_CONF", "START", "STOP", "GET_MEAS", "GET_STATUS", "RESET", "MEAS", "recevoir", "test"]
-    #envoyer_trame(trame[0] + ";nb=a;f=20")
-    #recevoir_trame()
-    #envoyer_trame(trame[1])
-    #recevoir_trame()
-    #envoyer_trame(trame[6])
-    #recevoir_trame()
-    envoyer_trame(trame[-1]) #test trame non reconnue
+    trame = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir", "test"]
+    envoyer_trame(trame[0] + ";nb=15;f=20")
     recevoir_trame()
+    envoyer_trame(trame[1])
+    recevoir_trame()
+    #envoyer_trame(trame[-1]) #test trame non reconnue
+    #recevoir_trame()
+    #envoyer_trame(trame[2])
+    #recevoir_trame()
+    #envoyer_trame(trame[4])
+    #recevoir_trame()
+    #envoyer_trame("test45")
+    #recevoir_trame()
+
+
+    # erreur paramètre -> envoie quand meme json ?????
+    # probleme get_status 
+    # garder parametre de sim apres reset (utilser un fichier temp ?)
