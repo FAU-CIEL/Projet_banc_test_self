@@ -2,7 +2,6 @@ import machine                      # Classe pour la led        # type: ignore
 import select                       # classe detection evenements
 import json                         # classe pour le json
 import math                         # classe operations mathematiques
-import time                         # classe pour le temps
 import sys                          # classe systeme (environement + entrée/sortie)
 import io                           # classe flux entree/sortie
 import os                           # classe systeme (gestion fichiers)
@@ -10,22 +9,28 @@ import os                           # classe systeme (gestion fichiers)
 
 led_pret = machine.Pin(2, machine.Pin.OUT)
 LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir"]
+CHEMIN_JSON = "LOG"
+FICHIER_JSON = "donnees_self.json"
+C = 0.5 # Capacité du condensateur (F)
+L = 0.330 # Inductance de la self (H)
+U0 = 50 # Tension initiale (V)
 
-# classe pour la reception des trames de commande/parametrage
-class Gestion_Reception:
-    def __init__(self) -> None:
+# classe pour la communication
+class Communication:
+    def __init__(self, chemin_json, fichier_json) -> None:
+        self.__mon_json = Gestion_json(chemin_json, fichier_json)
         self.__trame = ""
         self.trame_correct = False
         self.action = ""
-        self.parametre_sim = [0, 0]
-        """
-        Premier arg => nb echantillon
-        Deuxieme arg => frequence d'echantillonage
-        """
+        self.parametre_sim = [0, 0] #   Premier arg => nb echantillon   Deuxieme arg => frequence d'echantillonage
+        self.__chemin_fichier_json = chemin_json
+        self.__fichier_json = fichier_json
+        self.__poller = select.poll()
+        self.__poller.register(sys.stdout, select.POLLOUT)
 
     def get_trame(self) -> str:
         return self.__trame
-
+    
     def __reception_trame(self) -> None:
         self.__trame = ""
         if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
@@ -34,21 +39,18 @@ class Gestion_Reception:
                 f.write(self.__trame)
             f.close()
 
-    def __chaine_presente(self, commande) -> bool:
-        return True if commande in self.__trame else False
-
     def __decoupage_trame(self) -> None | Exception:
-        if self.__chaine_presente(LISTE_COMMANDS[0]): # SET_CONF
+        if LISTE_COMMANDS[0] in self.__trame: # SET_CONF
             trame_split = self.__trame.split(";")
             try:
                 self.parametre_sim[0] = int(trame_split[1].split('=')[1])
-                self.parametre_sim[1] = int(trame_split[2].split('=')[1])
+                self.parametre_sim[1] = float(trame_split[2].split('=')[1])
             except Exception:
                 raise Exception("erreur format parametre")
-
+            
     def __action_trame(self) -> None | Exception:
         for i in range(len(LISTE_COMMANDS)):
-            if self.__chaine_presente(LISTE_COMMANDS[i]):
+            if LISTE_COMMANDS[i] in self.__trame:
                 self.trame_correct = True
                 self.action = LISTE_COMMANDS[i]
                 try:
@@ -58,7 +60,7 @@ class Gestion_Reception:
                 break
             else:
                 self.trame_correct = False
-
+    
     def preparation_trame(self) -> None | Exception:
         try:
             led_pret.on()
@@ -67,21 +69,54 @@ class Gestion_Reception:
         except Exception as e:
             raise Exception(e)
 
+    def __fichier_existant(self) -> bool:
+        if sys.platform == "esp32":
+            os.chdir("/" + self.__chemin_fichier_json)
+            for fichier in os.ilistdir():
+                nom_fichier, type_, *_ = fichier
+                if type_ == 0x8000 and nom_fichier == self.__fichier_json: # type 0x8000 = fichier
+                    return True
+        return False
+    
+    def __sortie_prete(self) -> bool:
+        events = self.__poller.poll()
+        for obj, event in events:
+            if event == select.POLLOUT:
+                return True
+            else:
+                return False
+    
+    def envoi_donnees(self) -> None | Exception:
+        try:
+            if self.__sortie_prete() and self.__fichier_existant():
+                with io.open(self.__fichier_json, 'r') as file:
+                    for line in file:
+                        print(line.strip())
+                file.close()
+        except Exception:
+            raise Exception("erreur de memoire")
+    
+    def remplir_json(self, temps, tension, intensite) -> None:
+        self.__mon_json.prepa_json(temps, tension, intensite)
+    
+    def detruire_json(self) -> None:
+        self.__mon_json.detruire_json()
+
 # classe qui simule le circuit (equa diff + transformer en Z)
 class Simulation:
     def __init__(self) -> None:
         # parametre physique
-        self.__L = 0
-        self.__C = 0
+        self.__L = L
+        self.__C = C
 
         # condition initial
-        self.__U0 = 0
+        self.__U0 = U0
 
         # gestion du temps
-        self.__dt = 0       # pas de temps
         self.__n_steps = 0  # nb d'etapes
-
-        self.__omega0 = 0
+        self.__dt = 0       # pas de temps
+        
+        self.__omega0 = 1 / math.sqrt(self.__L * self.__C)
         self.__phi = 0
 
         # tableaux de sorties
@@ -89,14 +124,9 @@ class Simulation:
         self.u_l = []
         self.i_l = []
 
-    def init_parametre(self, L, C, U0, dt, nb_step) -> None:
-        self.__L = L
-        self.__C = C
-        self.__U0 = U0
-        self.__dt = dt
+    def init_parametre(self, nb_step, dt) -> None:
         self.__n_steps = nb_step
-        self.__omega0 = 1 / math.sqrt(self.__L * self.__C)
-        self.__phi = 0
+        self.__dt = dt
 
         self.t = [0] * self.__n_steps
         self.u_l = [0] * self.__n_steps
@@ -129,9 +159,9 @@ class Simulation:
 
 # classe qui stocke les valeurs dans un json
 class Gestion_json:
-    def __init__(self) -> None:
-        self.__chemin_json = "LOG"
-        self.__fichier_json = "donnees_self.json"
+    def __init__(self, chemin_json, fichier_json) -> None:
+        self.__chemin_json = chemin_json
+        self.__fichier_json = fichier_json
         self.__donner_a_stocker = {
             "temps": [],
             "tension": [],
@@ -156,19 +186,26 @@ class Gestion_json:
         if not self.__dossier_existant():
             os.mkdir(self.__chemin_json)
 
-    def creer_json(self) -> None:
+    def __creer_json(self) -> None:
         if sys.platform == "esp32":
             self.__creer_chemin_json()
             os.chdir(self.__chemin_json)
             io.open(self.__fichier_json, 'w')
 
-    def preparation_donnee(self, donnee, valeur) -> None:
+    def __preparation_donnee(self, donnee, valeur) -> None:
         self.__donner_a_stocker[donnee] = valeur
 
-    def charger_json(self) -> None:
+    def __charger_json(self) -> None:
         with io.open(self.__fichier_json) as file:
             json.dump(self.__donner_a_stocker, file)
         file.close()
+
+    def prepa_json(self, temps, tension, intensite) -> None:
+        self.__creer_json()
+        self.__preparation_donnee("temps", temps)
+        self.__preparation_donnee("tension", tension)
+        self.__preparation_donnee("intensite", intensite)
+        self.__charger_json()
 
     def __detruire_file(self) -> None:
         os.chdir("/" + self.__chemin_json)
@@ -182,41 +219,6 @@ class Gestion_json:
                     self.__detruire_file()
                 os.chdir("/")
                 os.rmdir(self.__chemin_json)
-
-# classe qui renvoie les données a l'IHM
-class Gestion_envoi:
-    def __init__(self) -> None:
-        self.__chemin_fichier_json = "LOG"
-        self.__fichier_json = "donnees_self.json"
-        self.poller = select.poll()
-        self.poller.register(sys.stdout, select.POLLOUT)
-
-    def __fichier_existant(self) -> bool:
-        if sys.platform == "esp32":
-            os.chdir("/" + self.__chemin_fichier_json)
-            for fichier in os.ilistdir():
-                nom_fichier, type_, *_ = fichier
-                if type_ == 0x8000 and nom_fichier == self.__fichier_json: # type 0x8000 = fichier
-                    return True
-        return False
-
-    def __sortie_prete(self) -> bool:
-        events = self.poller.poll()
-        for obj, event in events:
-            if event == select.POLLOUT:
-                return True
-            else:
-                return False
-
-    def envoi_donnees(self) -> None | Exception:
-        try:
-            if self.__sortie_prete() and self.__fichier_existant():
-                with io.open(self.__fichier_json, 'r') as file:
-                    for line in file:
-                        sys.stdout.write(line.strip())
-                file.close()
-        except Exception:
-            raise Exception("erreur de memoire")
 
 #classe qui gere les differentes erreurs
 class Gestion_erreur:
@@ -241,47 +243,34 @@ class Gestion_erreur:
 # classe qui gere les autres fonctions
 class Gestion_fonction:
     def __init__(self) -> None:
-        self.__reception = Gestion_Reception()
+        self.__communication = Communication(CHEMIN_JSON, FICHIER_JSON)
         self.__Simulation_banc = Simulation()
-        self.__mon_json = Gestion_json()
-        self.__retour_donnees = Gestion_envoi()
         self.__mes_erreurs = Gestion_erreur()
-
-    def __prepa_json(self) -> None:
-        self.__mon_json.creer_json()
-        self.__mon_json.preparation_donnee("temps", self.__Simulation_banc.t)
-        self.__mon_json.preparation_donnee("tension",self.__Simulation_banc.u_l)
-        self.__mon_json.preparation_donnee("intensite", self.__Simulation_banc.i_l)
-        self.__mon_json.charger_json()
-        time.sleep(1)
 
     def __envoi_et_preparation_futur_test(self) -> None | Exception:
         try:
-            self.__retour_donnees.envoi_donnees()
-            self.__reception.trame_correct = False
+            self.__communication.envoi_donnees()
+            self.__communication.trame_correct = False
             print("\n")
-            self.__mon_json.detruire_json()
+            self.__communication.detruire_json()
         except Exception as e:
-            self.__mon_json.detruire_json()
+            self.__communication.detruire_json()
             raise Exception(e)
 
     def __set_conf(self) -> None:
         led_pret.off()
-        self.__Simulation_banc.init_parametre(L=0.330, 
-                                              C=0.5, 
-                                              U0=50, 
-                                              dt=1/self.__reception.parametre_sim[1], 
-                                              nb_step=self.__reception.parametre_sim[0])
-        print("OK;CMD;" + self.__reception.action)
+        self.__Simulation_banc.init_parametre(nb_step=self.__communication.parametre_sim[0],
+                                              dt=1/self.__communication.parametre_sim[1])
+        print("OK;CMD;" + self.__communication.action)
 
     def __start(self) -> None | Exception:
         led_pret.off()
         self.__Simulation_banc.simulation()
         try:
-            self.__prepa_json()
+            self.__communication.remplir_json(self.__Simulation_banc.t, self.__Simulation_banc.u_l, self.__Simulation_banc.i_l)
             self.__envoi_et_preparation_futur_test()
             print("\n")
-            print("OK;CMD;" + self.__reception.action)
+            print("OK;CMD;" + self.__communication.action)
         except Exception as e:
             raise Exception(e)
 
@@ -290,50 +279,51 @@ class Gestion_fonction:
         valeur_simulation = f"Parametre;nb_echantillon={self.__Simulation_banc.get_n_steps()};frequence_echantillonage={1/self.__Simulation_banc.get_dt()}"
         print(valeur_simulation)
         print("simulation prete")
-        print("OK;CMD;" + self.__reception.action)
+        print("OK;CMD;" + self.__communication.action)
 
     def __reset(self) -> None:
         led_pret.off()
-        print("OK;CMD;" + self.__reception.action)
+        print("OK;CMD;" + self.__communication.action)
         machine.reset()
    
     def __recevoir(self) -> None:
         led_pret.off()
-        self.__Simulation_banc.init_parametre(L=0.330, C=0.5, U0=50, dt=1/10, nb_step=50)
+        self.__Simulation_banc.init_parametre(nb_step=50, dt=1/10)
         self.__Simulation_banc.simulation()
-        self.__prepa_json()
+        self.__communication.remplir_json(self.__Simulation_banc.t, self.__Simulation_banc.u_l, self.__Simulation_banc.i_l)
         self.__envoi_et_preparation_futur_test()
-        print("OK;CMD;" + self.__reception.action)
+        print("OK;CMD;" + self.__communication.action)
 
     def __gestion_action(self) -> bool | Exception:
-        if self.__reception.trame_correct:
+        if self.__communication.trame_correct:
             try:
-                if self.__reception.action == LISTE_COMMANDS[0]:
+                if self.__communication.action == LISTE_COMMANDS[0]:
                     self.__set_conf()
-                elif self.__reception.action == LISTE_COMMANDS[1]:
+                    return False
+                elif self.__communication.action == LISTE_COMMANDS[1]:
                     self.__start()
-                elif self.__reception.action == LISTE_COMMANDS[2]:
+                    return True
+                elif self.__communication.action == LISTE_COMMANDS[2]:
                     self.__get_status()
-                elif self.__reception.action == LISTE_COMMANDS[3]:
+                    return False
+                elif self.__communication.action == LISTE_COMMANDS[3]:
                     self.__reset()
-                elif self.__reception.action == LISTE_COMMANDS[4]:
+                    return True
+                elif self.__communication.action == LISTE_COMMANDS[4]:
                     self.__recevoir()
-                self.__reception.trame_correct = False
-                self.__reception.action = ""
+                    return True
+                self.__communication.trame_correct = False
+                self.__communication.action = ""
             except Exception as e:
                 raise Exception(e)
-        if self.__reception.action == LISTE_COMMANDS[1] or self.__reception.action == LISTE_COMMANDS[3] or self.__reception.action == LISTE_COMMANDS[4]:
-            return True
-        else:            
-            return False
 
     def loop(self) -> None:
         led_pret.off()
         while True:
             try:
-                self.__reception.preparation_trame()
+                self.__communication.preparation_trame()
                 if self.__gestion_action():
-                    break
+                    return
 
             except Exception as e:
                 if str(e) == "erreur format parametre":
@@ -343,8 +333,8 @@ class Gestion_fonction:
                     print(self.__mes_erreurs.erreur_memoire())
                     break
 
-            if self.__reception.get_trame() != "":
-                erreur = self.__mes_erreurs.erreur_trame(self.__reception.get_trame())
+            if self.__communication.get_trame() != "":
+                erreur = self.__mes_erreurs.erreur_trame(self.__communication.get_trame())
                 if erreur and self.__mes_erreurs.erreur_present:
                     print(erreur)
                     break
