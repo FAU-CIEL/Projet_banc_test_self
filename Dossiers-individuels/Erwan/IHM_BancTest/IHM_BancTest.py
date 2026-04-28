@@ -9,13 +9,14 @@
 # IMPORTS
 # ============================================================
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import VERTICAL, ttk, filedialog, messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import csv
 import sys
 import json
 import sqlite3
+from numpy import column_stack, delete
 import serial
 import serial.tools.list_ports
 import pandas as pd
@@ -30,7 +31,7 @@ import time
 IHM = tk.Tk()
 IHM.title("Interface Banc de Test")
 IHM.geometry("1600x700")
-
+L_commande = ["SET_CONF","START\n","RESET\n","GET_STATUS\n","recevoir\n"]
 # ------------------------------------------------------------
 # INITIALISATION DES CLASSES 
 # ------------------------------------------------------------
@@ -57,7 +58,7 @@ class CGestion_Connexion :
                     self.ser = serial.Serial(port.device,115200)
 
                     print("ESP32 connecté sur:",port.device)
-                    
+                   
 
                     return
                 except:
@@ -75,38 +76,41 @@ class CGestion_Connexion :
         texte_status.see("end")
         texte_status.config(state="disabled")
 
+        trame = ""
 
         Ech=gestion_limite.Nb_Ech.get()
         Feq=gestion_limite.Feq.get()
-        tot="SET_CONF;"+ "N="+Ech + ";" +"F="+Feq +"\n"
-        print(tot)
+        #Verification que la commande param est reçue et attend de recevoir OK;CMD pour continuer le programme
+        param=L_commande[0]+ ";N="+Ech + ";" +"F="+Feq +"\n"
+        print(param)
         if self.ser is not None:
-            self.ser.write(tot.encode())
-
+            self.ser.write(param.encode())
+            
+            while not re.search("OK;CMD", trame):
+                trame = self.ser.readline().decode().strip()
+                if re.search("ERR;", trame):
+                    print("erreur")
+                    break
          
         else:
             print("ESP32 non connecté")
 
     def recup_info(self):
+        
         self.donnees = []
         self.compteur= 0
-        rec="START\n"
-        self.ser.write(rec.encode())
-        print(rec)
-        time.sleep(2)
-        meas="MEAS\n"
-        print(meas)
-        self.ser.write(meas.encode())
+        
+        self.ser.write(L_commande[1].encode())
+        
         while True:
             valeur_json=self.ser.readline().decode().strip()
             
-        
+            print(valeur_json if not "" else "rien")
             if valeur_json:
                 if re.search(re.escape('{'),str(valeur_json)):
                     donnee=json.loads(valeur_json)
 
                     print(donnee)
-
 
                     break
         self.val_temps = donnee["temps"]
@@ -114,14 +118,25 @@ class CGestion_Connexion :
         self.val_intensite = donnee["intensite"]
         return self.val_temps , self.val_tens , self.val_intensite
 
+    def reinitialiser(self):
+        ## @var reinitialiser
+        #  Suppression de toutes les données du tableau/graphique et des paramètres de mesures
+        self.ser.write(L_commande[2].encode())
+        
+        tableau.delete(*tableau.get_children())
+        ax.clear()
+        graph.draw()
     def demarrer_mesure(self):
         
         ## @var demarrer_mesure
         #  Recupération et affichage des paramètres choisis pour le test 
         t,tens,inten=self.recup_info()
         ech=1
+       
+                    
+
         for i in range (len(t)):
-           tableau.insert("", "end", values=(ech, tens[i],inten[i],tens[1]/inten[8] ,t[i]))
+           tableau.insert("", "end", values=(ech, tens[i],inten[i],inten[i]/t[1],t[i]))
            ech+=1
         gestion_fonction = CGestion_Graphique()
         gestion_fonction.graphique()
@@ -146,7 +161,7 @@ class CGestion_Fichier_CSV :
         try:
             with open(filepath, mode="w", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file, delimiter=";")
-                writer.writerow(["Echantillon", "Inductance","Temps [s]"])
+                writer.writerow(["Echantillon", "Inductance","Tension [v]","Intensite [A]","Temps [s]"])
 
                 for item in tableau.get_children():
                     writer.writerow(tableau.item(item, "values"))
@@ -175,7 +190,7 @@ class CGestion_Fichier_CSV :
                 next(reader)  # ignore l'en-tête
 
                 for row in reader:
-                    tableau.insert("", "end", values=row[:2])
+                    tableau.insert("", "end", values=row[:5])
 
             gestion_graphique = CGestion_Graphique()
             gestion_graphique.graphique()
@@ -281,7 +296,7 @@ class CGestion_BDD:
                self.Nom_Tech = ttk.Entry(partie_bdd)
                self.Nom_Tech.grid(row=2, column=1, sticky="ew", padx=5, pady=2)
            
-               bouton_Creer = ttk.Button(partie_bdd, text="Ajouter",command=gestion_bdd.RSQL)
+               bouton_Creer = ttk.Button(partie_bdd, text="Ajouter",command=gestion_bdd.rsql)
                bouton_Creer.grid(row=3, column=0, pady=5)
            
        
@@ -329,7 +344,7 @@ class CGestion_BDD:
         requete="INSERT INTO Test (Echantillon,Inductance, Temps) VALUES (?, ?, ?)"
         for valeur in tableau.get_children():
             ligne = tableau.item(valeur, "values")
-            cursor.execute(requete,(ligne[0],ligne[1],ligne[4]))
+            cursor.execute(requete,(ligne[0],ligne[3],ligne[4]))
         conn.commit()
         conn.close()
 
@@ -396,12 +411,12 @@ class CGestion_Limite :
     # Classe pour la gestion des limites des entry
     def valider_Ech(new_value):
         ## @var valider_Ech
-        # Verification des valeurs entrées dans les paramètres de mesures . Bloque en cas de valeurs superieur a 1000
+        # Verification des valeurs entrées dans les paramètres de mesures . Bloque en cas de valeurs superieur a 2000
         if new_value == "":
             return True
         try:
             val = int(new_value)
-            return 1 <= val <= 1000
+            return 1 <= val <= 2000
         except ValueError:
             return False
 
@@ -496,17 +511,26 @@ bouton_demarrer = ttk.Button(
 )
 bouton_demarrer.grid(row=2, column=0, pady=5, sticky="ew")
 
-ttk.Label(partie_mesure, text="Statuts").grid(row=3, column=0, sticky="w")
+bouton_reinitialiser = ttk.Button(
+    partie_mesure,
+    text="🔁 Reinitialiser",
+    command=detection_esp32.reinitialiser
+)
+bouton_reinitialiser.grid(row=3, column=0, pady=5, sticky="ew")
+
+ttk.Label(partie_mesure, text="Statuts").grid(row=4, column=0, sticky="w")
 texte_status = tk.Text(partie_mesure, width=30, height=8)
-texte_status.grid(row=4, column=0, pady=5)
+texte_status.grid(row=5, column=0, pady=5)
 texte_status.config(state="disabled")
 
-# ---- Zone Paramètre ----
-
+# ============================================================
+# ZONE PARAMETRE
+# ============================================================
 
 # ---- Zone Echantillons ----
 ttk.Label(partie_parametre, text="Nombre Echantillons").grid(row=0, column=0, sticky="w", padx=5, pady=2)
 partie_parametre.columnconfigure(1, weight=1)
+
 # ---- Zone Fréquence ----
 ttk.Label(partie_parametre, text="Fréquence Echantillonage").grid(row=1, column=0, sticky="w", padx=5, pady=2)
 partie_parametre.columnconfigure(1, weight=1)
@@ -560,11 +584,14 @@ tableau.heading("I", text="Inductance")
 tableau.heading("T", text="Temps [s]")
 tableau.heading("Tens", text="Tension [v]")
 tableau.heading("Int", text="Intensité [A]")
-
 tableau.grid(row=1, column=0, sticky="nsew")
-
+# ---- Menu Déroulant ----
+menu_deroulant= ttk.Scrollbar(partie_resultat,orient="vertical",command=tableau.yview)
+tableau.configure(yscrollcommand=menu_deroulant.set)
+menu_deroulant.grid(row=1 , column=1 , sticky="ns")
 
 # ============================================================
 # LANCEMENT DE L'IHM
 # ============================================================
 IHM.mainloop()
+ 
