@@ -39,6 +39,8 @@ L_commande = ["SET_CONF","START\n","RESET\n","GET_STATUS\n","recevoir\n"]
 # ============================================================
 # FONCTIONS DETECTION ESP32
 # ============================================================
+## @class CGestion_Connexion
+#  Classe pour la gestion de la connexion entre l'IHM et le banc de test . Il gère aussi les boutons en lien avec les mesures comme envoyer donnée ou démarrer
 class CGestion_Connexion :
     def __init__(self):
             self.ser=None
@@ -63,7 +65,7 @@ class CGestion_Connexion :
                     return
                 except:
                     pass
-
+                
         print("ESP32 non détecté")
     def envoie_parametre(self) :
         gestion_limite=CGestion_Limite()
@@ -72,7 +74,7 @@ class CGestion_Connexion :
         texte_status.config(state="normal")
         texte_status.insert("end", "Paramètre enregistré\n")
         texte_status.insert(tk.END,f"Nombre echantillons:  {gestion_limite.Nb_Ech.get()}\n")
-        texte_status.insert(tk.END,f"Fréquence Echantillonnage: {gestion_limite.Feq.get()} \n")
+        texte_status.insert(tk.END,f"Fréquence Echantillonnage MHz : {gestion_limite.Feq.get()} \n")
         texte_status.see("end")
         texte_status.config(state="disabled")
 
@@ -136,7 +138,7 @@ class CGestion_Connexion :
                     
 
         for i in range (len(t)):
-           tableau.insert("", "end", values=(ech, tens[i],inten[i],inten[i]/t[1],t[i]))
+           tableau.insert("", "end", values=(ech, tens[i],inten[i],tens[i]*(1/20)/inten[i],t[i]))
            ech+=1
         gestion_fonction = CGestion_Graphique()
         gestion_fonction.graphique()
@@ -144,9 +146,11 @@ class CGestion_Connexion :
 # ============================================================
 # FONCTIONS DE GESTION DES FICHIERS CSV
 # ============================================================
+
+## @class CGestion_Fichier_CSV
+#  Classe pour la gestion des fonctions pour les fichiers CSV
 class CGestion_Fichier_CSV :
-    ## @class CGestion_Fichier_CSV
-    #  Classe pour la gestion des fonctions pour les fichiers CSV
+
 
     def sauvegarder_csv(self):
         ## @var sauvegarder_csv
@@ -198,9 +202,11 @@ class CGestion_Fichier_CSV :
 
         except Exception as e:
             messagebox.showerror("Erreur", f"Erreur de chargement :\n{e}")
+
+## @class CGestion_Fonction
+#  Classe pour la gestion des fonctions quitter et information avec l'interface pour la recherche dans l'historique
 class CGestion_Fonction:
-    ## @class CGestion_Fonction
-    #  Classe pour la gestion des fonctions quitter et information avec l'interface pour la recherche dans l'historique
+    
     
     # ============================================================
     # FONCTIONS DE CONTRÔLE
@@ -256,9 +262,11 @@ class CGestion_Fonction:
      # ============================================================
     # FONCTION BASE DE DONNEE
     # ============================================================
+## @class CGestion_BDD
+#  Classe pour la gestion des fonctions en lien avec la base de donnée . Sa création et l'ajout de donnée 
+
 class CGestion_BDD:
-     ## @class CGestion_BDD
-     #  Classe pour la gestion des fonctions en lien avec la base de donnée
+     ##  Classe pour la gestion des fonctions en lien avec la base de donnée
     
     def __init__(self):
         self.Nom_Test =""
@@ -340,7 +348,7 @@ class CGestion_BDD:
         conn = sqlite3.connect("Base_Projet.db")
         cursor = conn.cursor()
         ## @var requete
-        #@brief Création d'une requete pour inserer dans la table les valeurs des echantillons ,l'impédance , le temps
+        #@brief Création d'une requete pour inserer dans la table les valeurs des echantillons ,l'inductance , le temps
         requete="INSERT INTO Test (Echantillon,Inductance, Temps) VALUES (?, ?, ?)"
         for valeur in tableau.get_children():
             ligne = tableau.item(valeur, "values")
@@ -351,6 +359,8 @@ class CGestion_BDD:
 # ============================================================
 # FONCTION GRAPHIQUE
 # ============================================================
+## @class CGestion_Graphique
+#  Classe pour la gestion de l'affichage du graphique 
 class CGestion_Graphique:
     def __init__(self):
         self.x = []
@@ -406,9 +416,10 @@ frame_gauche.columnconfigure(0, weight=1)
 partie_parametre = ttk.LabelFrame(frame_gauche, text="Paramètre des mesures")
 partie_parametre.grid(row=1, column=0, sticky="ew", pady=5)
 partie_parametre.columnconfigure(0, weight=1)
+## @class CGestion_Limite
+# Classe pour la gestion des limites des paramètres d'entrée
 class CGestion_Limite :
-    ## @class CGestion_Limite
-    # Classe pour la gestion des limites des entry
+    
     def valider_Ech(new_value):
         ## @var valider_Ech
         # Verification des valeurs entrées dans les paramètres de mesures . Bloque en cas de valeurs superieur a 2000
@@ -446,8 +457,7 @@ class CGestion_Limite :
 # INITIALISATION DU MENU 
 # ------------------------------------------------------------
 
-## @class CGestion_Interface
-#@brief Classe permettant de regrouper toute l'interface de l'IHM que ce soit les boutons , les labels ou les entry
+
 
 menu = tk.Menu(IHM)
 gestion_csv = CGestion_Fichier_CSV()
