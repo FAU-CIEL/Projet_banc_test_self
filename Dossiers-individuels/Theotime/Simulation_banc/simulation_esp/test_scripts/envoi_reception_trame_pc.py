@@ -34,14 +34,14 @@ def recevoir_trame():
 
 if __name__ == "__main__":
     trame = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir", "test"]
-    #envoyer_trame(trame[0] + ";nb=1685;f=20")
-    #recevoir_trame()
-    #envoyer_trame(trame[1])
-    #recevoir_trame()
+    envoyer_trame(trame[0] + ";nb=1303;f=20")
+    recevoir_trame()
+    envoyer_trame(trame[1])
+    recevoir_trame()
     #envoyer_trame(trame[-1]) #test trame non reconnue
     #recevoir_trame()
-    envoyer_trame(trame[2])
-    recevoir_trame()
+    #envoyer_trame(trame[2])
+    #recevoir_trame()
     #envoyer_trame(trame[4])
     #recevoir_trame()
     #envoyer_trame("test45")
@@ -50,5 +50,3 @@ if __name__ == "__main__":
 
     # erreur paramètre -> envoie quand meme json ?????
     # garder parametre de sim apres reset (utilser un fichier temp ?)
-
-    # limite echantillon -> 1685

@@ -14,11 +14,13 @@ FICHIER_JSON = "donnees_self.json"
 C = 0.5 # Capacité du condensateur (F)
 L = 0.330 # Inductance de la self (H)
 U0 = 50 # Tension initiale (V)
+FICHIER_DE_SAUVEGARDE = "sauvegarde.txt"
+CONVERTION_MHZ_HZ = 1_000_000
 
 # classe pour la communication
 class Communication:
     def __init__(self, chemin_json, fichier_json) -> None:
-        self.__mon_json = Gestion_json(chemin_json, fichier_json)
+        self.__mon_json = None
         self.__trame = ""
         self.trame_correct = False
         self.action = ""
@@ -44,7 +46,7 @@ class Communication:
             trame_split = self.__trame.split(";")
             try:
                 self.parametre_sim[0] = int(trame_split[1].split('=')[1])
-                self.parametre_sim[1] = float(trame_split[2].split('=')[1])
+                self.parametre_sim[1] = float(trame_split[2].split('=')[1]) * CONVERTION_MHZ_HZ
             except Exception:
                 raise Exception("erreur format parametre")
             
@@ -97,10 +99,12 @@ class Communication:
             raise Exception("erreur de memoire")
     
     def remplir_json(self, temps, tension, intensite) -> None:
+        self.__mon_json = Gestion_json(self.__chemin_fichier_json, self.__fichier_json)
         self.__mon_json.prepa_json(temps, tension, intensite)
     
     def detruire_json(self) -> None:
         self.__mon_json.detruire_json()
+        del self.__mon_json
 
 # classe qui simule le circuit (equa diff + transformer en Z)
 class Simulation:
@@ -168,29 +172,17 @@ class Gestion_json:
             "intensite": []
             }
 
-    def __dossier_existant(self) -> bool:
-        for dossier in os.ilistdir():
-            nom_dossier, type_, *_ = dossier
-            if type_ == 0x4000 and nom_dossier == self.__chemin_json:  # type 0x4000 = dossier
-                return True
-        return False
-
-    def __fichier_existant(self) -> bool:
-        for file in os.ilistdir(self.__chemin_json):
-            nom_file, type_, *_ = file
-            if type_ == 0x8000 and nom_file == self.__fichier_json:     # type 0x8000 = fichier
-                return True
-        return False
-
     def __creer_chemin_json(self) -> None:
-        if not self.__dossier_existant():
+        if not self.__chemin_json in os.listdir():
             os.mkdir(self.__chemin_json)
 
     def __creer_json(self) -> None:
         if sys.platform == "esp32":
             self.__creer_chemin_json()
             os.chdir(self.__chemin_json)
-            io.open(self.__fichier_json, 'w')
+            with io.open(self.__fichier_json, 'w') as creation_file:
+                pass
+            creation_file.close()
 
     def __preparation_donnee(self, donnee, valeur) -> None:
         self.__donner_a_stocker[donnee] = valeur
@@ -214,8 +206,9 @@ class Gestion_json:
     def detruire_json(self) -> None:
         if sys.platform == "esp32":
             os.chdir("/")
-            if self.__dossier_existant():
-                if self.__fichier_existant():
+            if self.__chemin_json in os.listdir():
+                os.chdir("/" + self.__chemin_json)
+                if self.__fichier_json in os.listdir():
                     self.__detruire_file()
                 os.chdir("/")
                 os.rmdir(self.__chemin_json)
@@ -246,6 +239,7 @@ class Gestion_fonction:
         self.__communication = Communication(CHEMIN_JSON, FICHIER_JSON)
         self.__Simulation_banc = Simulation()
         self.__mes_erreurs = Gestion_erreur()
+        self.__charger_sauvegarde()
 
     def __envoi_et_preparation_futur_test(self) -> None | Exception:
         try:
@@ -276,7 +270,13 @@ class Gestion_fonction:
 
     def __get_status(self) -> None:
         led_pret.off()
-        valeur_simulation = f"Parametre;nb_echantillon={self.__Simulation_banc.get_n_steps()};frequence_echantillonage={1/self.__Simulation_banc.get_dt()}"
+        dt = self.__Simulation_banc.get_dt()
+        nb_step = self.__Simulation_banc.get_n_steps()
+        valeur_simulation = ""
+        if dt != 0:
+            valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=" + str(1/dt)
+        else:
+            valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=0"
         print(valeur_simulation)
         print("simulation prete")
         print("OK;CMD;" + self.__communication.action)
@@ -316,6 +316,27 @@ class Gestion_fonction:
                 self.__communication.action = ""
             except Exception as e:
                 raise Exception(e)
+            
+    def __mon_reset(self) -> None:
+        if self.__Simulation_banc.get_n_steps() != 0 and self.__Simulation_banc.get_dt() != 0:
+            with io.open(FICHIER_DE_SAUVEGARDE, 'w') as save_file:
+                save_file.write("nb_enchantillon=" + str(self.__Simulation_banc.get_n_steps()) + ";frequence_echantillonage=" + str(1/self.__Simulation_banc.get_dt()))
+            save_file.close()
+        
+        if self.__mes_erreurs.erreur_present:
+            machine.reset()
+        else:
+            del self.__Simulation_banc
+
+    def __charger_sauvegarde(self) -> None:
+        if FICHIER_DE_SAUVEGARDE in os.listdir():
+            with io.open(FICHIER_DE_SAUVEGARDE, 'r') as save_file:
+                parametres = save_file.readline().split(";")
+                nb_echantillon = int(parametres[0].split("=")[1])
+                frequence_echantillonage = float(parametres[1].split("=")[1])
+                self.__Simulation_banc.init_parametre(nb_step=nb_echantillon, dt= 1/frequence_echantillonage)
+            save_file.close()
+            os.remove(FICHIER_DE_SAUVEGARDE)
 
     def loop(self) -> None:
         led_pret.off()
@@ -323,7 +344,7 @@ class Gestion_fonction:
             try:
                 self.__communication.preparation_trame()
                 if self.__gestion_action():
-                    return
+                    break
 
             except Exception as e:
                 if str(e) == "erreur format parametre":
@@ -339,5 +360,4 @@ class Gestion_fonction:
                     print(erreur)
                     break
 
-        if self.__mes_erreurs.erreur_present:
-            machine.reset()
+        self.__mon_reset()
