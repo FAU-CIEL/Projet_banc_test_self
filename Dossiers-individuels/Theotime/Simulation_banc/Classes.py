@@ -3,6 +3,7 @@ import select                       # classe detection evenements
 import json                         # classe pour le json
 import math                         # classe operations mathematiques
 import sys                          # classe systeme (environement + entrée/sortie)
+import gc                           # classe pour la gestion de la memoire (HEAP)
 import io                           # classe flux entree/sortie
 import os                           # classe systeme (gestion fichiers)
 
@@ -12,7 +13,7 @@ LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir"]
 CHEMIN_JSON = "LOG"
 FICHIER_JSON = "donnees_self.json"
 C = 0.5 # Capacité du condensateur (F)
-L = 0.330 # Inductance de la self (H)
+L = 0.6667 # Inductance de la self (H)
 U0 = 50 # Tension initiale (V)
 FICHIER_DE_SAUVEGARDE = "sauvegarde.txt"
 CONVERTION_MHZ_HZ = 1_000_000
@@ -93,7 +94,7 @@ class Communication:
             if self.__sortie_prete() and self.__fichier_existant():
                 with io.open(self.__fichier_json, 'r') as file:
                     for line in file:
-                        print(line.strip())
+                        sys.stdout.write(line.strip() + '\n')
                 file.close()
         except Exception:
             raise Exception("erreur de memoire")
@@ -105,6 +106,7 @@ class Communication:
     def detruire_json(self) -> None:
         self.__mon_json.detruire_json()
         del self.__mon_json
+        gc.collect()
 
 # classe qui simule le circuit (equa diff + transformer en Z)
 class Simulation:
@@ -146,20 +148,20 @@ class Simulation:
         return self.__U0 * math.cos(self.__omega0 * t + self.__phi)
 
     def __calcul_intensite(self, t) -> float:
-        return self.__C * self.__U0 * math.sin(self.__omega0 * t)
+        return self.__C * self.__U0 * self.__omega0 * math.sin(self.__omega0 * t)
 
-    def __transformer_Z_tension(self, z) -> float:
+    def __transformer_Z_tension(self, z) -> float: # fonction inutile
         return self.__U0 * ((z**2 - z * math.cos(self.__omega0)) / (z**2 - 2 * z * math.cos(self.__omega0) + 1))
 
-    def __transformer_Z_intensite(self, z) -> float:
-        return self.__C * self.__U0 * self.__omega0 * ((z * math.sin(self.__omega0)) / (z ** 2 -2 * z * math.cos(self.__omega0) + 1))
+    def __transformer_Z_intensite(self, z) -> float: # fonction inutile
+        return self.__C * self.__U0 * self.__omega0 * ((z * math.sin(self.__omega0)) / (z**2 - 2 * z * math.cos(self.__omega0) + 1))
 
     def simulation(self) -> None:
         for n in range(self.__n_steps):
             t = self.__dt * n
             self.t[n] = t
-            self.u_l[n] = self.__transformer_Z_tension(t)
-            self.i_l[n] = self.__transformer_Z_intensite(t)
+            self.u_l[n] = self.__calcul_tension(t)
+            self.i_l[n] = self.__calcul_intensite(t)
 
 # classe qui stocke les valeurs dans un json
 class Gestion_json:
@@ -223,15 +225,15 @@ class Gestion_erreur:
             if cmd in trame:
                 return None
         self.erreur_present = True
-        return "ERR;1;trame non reconnue"
+        return "ERR;1;trame non reconnue\n"
 
     def erreur_parametre(self) -> str:
         self.erreur_present = True
-        return "ERR;2;parametre incorrect"
+        return "ERR;2;parametre incorrect\n"
 
     def erreur_memoire(self) -> str:
         self.erreur_present = True
-        return "ERR;3;erreur de memoire"
+        return "ERR;3;erreur de memoire\n"
 
 # classe qui gere les autres fonctions
 class Gestion_fonction:
@@ -245,7 +247,7 @@ class Gestion_fonction:
         try:
             self.__communication.envoi_donnees()
             self.__communication.trame_correct = False
-            print("\n")
+            sys.stdout.write("\n")
             self.__communication.detruire_json()
         except Exception as e:
             self.__communication.detruire_json()
@@ -255,7 +257,7 @@ class Gestion_fonction:
         led_pret.off()
         self.__Simulation_banc.init_parametre(nb_step=self.__communication.parametre_sim[0],
                                               dt=1/self.__communication.parametre_sim[1])
-        print("OK;CMD;" + self.__communication.action)
+        sys.stdout.write("OK;CMD;" + self.__communication.action)
 
     def __start(self) -> None | Exception:
         led_pret.off()
@@ -263,8 +265,8 @@ class Gestion_fonction:
         try:
             self.__communication.remplir_json(self.__Simulation_banc.t, self.__Simulation_banc.u_l, self.__Simulation_banc.i_l)
             self.__envoi_et_preparation_futur_test()
-            print("\n")
-            print("OK;CMD;" + self.__communication.action)
+            sys.stdout.write("\n")
+            sys.stdout.write("OK;CMD;" + self.__communication.action)
         except Exception as e:
             raise Exception(e)
 
@@ -277,13 +279,13 @@ class Gestion_fonction:
             valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=" + str(1/dt)
         else:
             valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=0"
-        print(valeur_simulation)
-        print("simulation prete")
-        print("OK;CMD;" + self.__communication.action)
+        sys.stdout.write(valeur_simulation)
+        sys.stdout.write("simulation prete")
+        sys.stdout.write("OK;CMD;" + self.__communication.action)
 
     def __reset(self) -> None:
         led_pret.off()
-        print("OK;CMD;" + self.__communication.action)
+        sys.stdout.write("OK;CMD;" + self.__communication.action)
         machine.reset()
    
     def __recevoir(self) -> None:
@@ -292,7 +294,7 @@ class Gestion_fonction:
         self.__Simulation_banc.simulation()
         self.__communication.remplir_json(self.__Simulation_banc.t, self.__Simulation_banc.u_l, self.__Simulation_banc.i_l)
         self.__envoi_et_preparation_futur_test()
-        print("OK;CMD;" + self.__communication.action)
+        sys.stdout.write("OK;CMD;" + self.__communication.action)
 
     def __gestion_action(self) -> bool | Exception:
         if self.__communication.trame_correct:
@@ -327,6 +329,7 @@ class Gestion_fonction:
             machine.reset()
         else:
             del self.__Simulation_banc
+            gc.collect()
 
     def __charger_sauvegarde(self) -> None:
         if FICHIER_DE_SAUVEGARDE in os.listdir():
@@ -348,16 +351,16 @@ class Gestion_fonction:
 
             except Exception as e:
                 if str(e) == "erreur format parametre":
-                    print(self.__mes_erreurs.erreur_parametre())
+                    sys.stdout.write(self.__mes_erreurs.erreur_parametre())
                     break
                 elif str(e) == "erreur de memoire":
-                    print(self.__mes_erreurs.erreur_memoire())
+                    sys.stdout.write(self.__mes_erreurs.erreur_memoire())
                     break
 
             if self.__communication.get_trame() != "":
                 erreur = self.__mes_erreurs.erreur_trame(self.__communication.get_trame())
                 if erreur and self.__mes_erreurs.erreur_present:
-                    print(erreur)
+                    sys.stdout.write(erreur)
                     break
 
         self.__mon_reset()

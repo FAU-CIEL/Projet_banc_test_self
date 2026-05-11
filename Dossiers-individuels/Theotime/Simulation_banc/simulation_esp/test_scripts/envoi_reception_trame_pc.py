@@ -34,7 +34,7 @@ def recevoir_trame():
 
 if __name__ == "__main__":
     trame = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir", "test"]
-    envoyer_trame(trame[0] + ";nb=1303;f=20")
+    envoyer_trame(trame[0] + ";nb=1658;f=20")
     recevoir_trame()
     envoyer_trame(trame[1])
     recevoir_trame()
