@@ -6,6 +6,10 @@
 # ============================================================
 
 # ============================================================
+# https://pyserial.readthedocs.io/en/latest/shortintro.html#shortintro-readline
+# ============================================================
+
+# ============================================================
 # IMPORTS
 # ============================================================
 import tkinter as tk
@@ -60,7 +64,9 @@ class CGestion_Connexion :
                     self.ser = serial.Serial(port.device,115200)
 
                     print("ESP32 connecté sur:",port.device)
-                   
+                    texte_status.config(state="normal")
+                    texte_status.insert("end","Connexion du Banc de Test")
+                    texte_status.config(state="disabled")
 
                     return
                 except:
@@ -72,9 +78,9 @@ class CGestion_Connexion :
 
 
         texte_status.config(state="normal")
-        texte_status.insert("end", "Paramètre enregistré\n")
+        texte_status.insert("end", "\nParamètre enregistré\n")
         texte_status.insert(tk.END,f"Nombre echantillons:  {gestion_limite.Nb_Ech.get()}\n")
-        texte_status.insert(tk.END,f"Fréquence Echantillonnage MHz : {gestion_limite.Feq.get()} \n")
+        texte_status.insert(tk.END,f"Fréquence Echantillonnage MHz: {gestion_limite.Feq.get()} \n")
         texte_status.see("end")
         texte_status.config(state="disabled")
 
@@ -88,12 +94,14 @@ class CGestion_Connexion :
         if self.ser is not None:
             self.ser.write(param.encode())
             
-            while not re.search("OK;CMD", trame):
+            
+            while not re.search("OK;CMD;", trame):
                 trame = self.ser.readline().decode().strip()
+                print("trame : "+trame)
                 if re.search("ERR;", trame):
-                    print("erreur")
+                    print("erreur: " + trame)
                     break
-         
+                
         else:
             print("ESP32 non connecté")
 
@@ -111,7 +119,7 @@ class CGestion_Connexion :
             if valeur_json:
                 if re.search(re.escape('{'),str(valeur_json)):
                     donnee=json.loads(valeur_json)
-
+                    
                     print(donnee)
 
                     break
@@ -134,11 +142,26 @@ class CGestion_Connexion :
         #  Recupération et affichage des paramètres choisis pour le test 
         t,tens,inten=self.recup_info()
         ech=1
-       
+        
+        
                     
 
         for i in range (len(t)):
-           tableau.insert("", "end", values=(ech, tens[i],inten[i],tens[i]*(1/20)/inten[i],t[i]))
+           dt = 0
+           dinten = 0
+           di_dt = 0
+           if i < len(t) - 1:
+               dt= t[i+1]-t[i]
+               dinten= inten[i+1] - inten[i]
+               if dt != 0:
+                   di_dt = dt/dinten
+               else:
+                   di_dt = 0
+           else:
+               dt = t[i] - t[i-1]
+               dinten= inten[i] - inten[i-1]
+
+           tableau.insert("", "end", values=(ech, tens[i],inten[i],tens[i]*di_dt,t[i]))
            ech+=1
         gestion_fonction = CGestion_Graphique()
         gestion_fonction.graphique()
@@ -311,7 +334,7 @@ class CGestion_BDD:
     def rsql(self):
            ## @var RSQL
            #@brief Création de la Base de Donnée avec une requête SQL
-            
+            gestion_limite=CGestion_Limite()
             gestion_bdd = CGestion_BDD()
             conn = sqlite3.connect("Base_Projet.db")
             cursor = conn.cursor()
@@ -319,12 +342,27 @@ class CGestion_BDD:
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS Test (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                Nom_Test TEXT,
+                Nom_Test MEDIUMTEXT,
                 Date TEXT,
-                Nom_Tech TEXT,
-                Echantillon INT,
-                Inductance FLOAT,
-                Temps FLOAT
+                Nom_Tech MEDIUMTEXT
+                
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS Parametre (
+            Nb_Ech INT,
+            Frequence_Ech INT
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS Mesure (
+            id INT,
+            Echantillon INT,
+            Inductance FLOAT,
+            Temps FLOAT,
+            FOREIGN KEY (id) REFERENCES Test(id)
             )
             """)
 
@@ -336,11 +374,21 @@ class CGestion_BDD:
                     self.Nom_Tech.get()
                 )
             )
-
+            cursor.execute(
+                "INSERT INTO Parametre (Nb_Ech, Frequence_Ech) VALUES (?, ? )",
+                (
+                    gestion_limite.Nb_Ech.get(),
+                    gestion_limite.Feq.get()
+                )
+            )
+            
             conn.commit()
             conn.close()
 
             print("Le Test a été enregistré !")
+            texte_status.config(state="normal")
+            texte_status.insert("end","Le Test a été enregistré !\n")
+            texte_status.config(state="disabled")
     def ajout_BDD(self):
 
         ## @var conn
@@ -349,12 +397,16 @@ class CGestion_BDD:
         cursor = conn.cursor()
         ## @var requete
         #@brief Création d'une requete pour inserer dans la table les valeurs des echantillons ,l'inductance , le temps
-        requete="INSERT INTO Test (Echantillon,Inductance, Temps) VALUES (?, ?, ?)"
+        requete="INSERT INTO Mesure (Echantillon,Inductance, Temps) VALUES (?, ?, ?)"
         for valeur in tableau.get_children():
             ligne = tableau.item(valeur, "values")
             cursor.execute(requete,(ligne[0],ligne[3],ligne[4]))
         conn.commit()
         conn.close()
+        print("Les données ont été envoyées sur la base de données")
+        texte_status.config(state="normal")
+        texte_status.insert("end","Les données ont été envoyées sur la base de données\n")
+        texte_status.config(state="disabled")
 
 # ============================================================
 # FONCTION GRAPHIQUE
@@ -384,11 +436,11 @@ class CGestion_Graphique:
                 temps = float(valeurs[4])       
                 tension = float(valeurs[1])   
                 intensite = float(valeurs [2])
-                impedance = float(valeurs[3])
+                inductance = float(valeurs[3])
                 self.x.append(temps)
                 self.y.append(tension)
                 self.yi.append(intensite)
-                self.yimp.append(impedance)
+                self.yimp.append(inductance)
 
             except ValueError:
                 pass
