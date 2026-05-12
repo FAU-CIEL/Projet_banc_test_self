@@ -35,13 +35,10 @@ exemple : SET_CONF;N=10;FE=10
 action trame:
 
 SET_CONF = Configure tension, courant max, fréquence d'échantillonnage
-START = Démarre la charge
-STOP = Arrete la charge
-GET_MEAS = Demande une mesure instantanée
-GET_STATUS = Verifie l'état du banc
+START = Démarre la charge et envoie les valeur
+GET_STATUS = Verifie l'état du banc et renvoie les parametre actuelle de la simulation
 RESET = Réinitialise le banc
 OK;CMD = Accusé de reception d'une commande
-MEAS = Mesure complète : tension, courant, inductance, courant de saturation
 ERR;[Code] = Message d'erreur: commande inconnue, paramètre invalide, etc.
 
 
@@ -49,5 +46,8 @@ ordre classique de sim:
 
 SET_CONF;N=parm1;F=parm2
 START
+<<<<<<< HEAD
 MEAS
+>>>>>>> DEV
+=======
 >>>>>>> DEV

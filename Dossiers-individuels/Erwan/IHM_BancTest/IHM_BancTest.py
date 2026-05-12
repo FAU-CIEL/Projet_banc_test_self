@@ -6,16 +6,21 @@
 # ============================================================
 
 # ============================================================
+# https://pyserial.readthedocs.io/en/latest/shortintro.html#shortintro-readline
+# ============================================================
+
+# ============================================================
 # IMPORTS
 # ============================================================
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import VERTICAL, ttk, filedialog, messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import csv
 import sys
 import json
 import sqlite3
+from numpy import column_stack, delete
 import serial
 import serial.tools.list_ports
 import pandas as pd
@@ -29,15 +34,18 @@ import time
 
 IHM = tk.Tk()
 IHM.title("Interface Banc de Test")
-IHM.geometry("1200x700")
-
+IHM.geometry("1600x700")
+L_commande = ["SET_CONF","START\n","RESET\n","GET_STATUS\n","recevoir\n"]
 # ------------------------------------------------------------
-# INITIALISATION DES CLASSES #
+# INITIALISATION DES CLASSES 
+# ------------------------------------------------------------
 
 # ============================================================
 # FONCTIONS DETECTION ESP32
 # ============================================================
-class CDetection_esp32 :
+## @class CGestion_Connexion
+#  Classe pour la gestion de la connexion entre l'IHM et le banc de test . Il gère aussi les boutons en lien avec les mesures comme envoyer donnée ou démarrer
+class CGestion_Connexion :
     def __init__(self):
             self.ser=None
             self.donnees=[]
@@ -45,93 +53,127 @@ class CDetection_esp32 :
     def detecter_esp32(self):
         ## @fonc detecter_esp32
         # Verification de la connexion entre l'ESP32 et l'IHM
-        #Le programme va rechercher dans les ports COM si l'un d'entre eux possèdent en description "CP210" afin de se connecter
+        #Le programme va rechercher dans les ports COM si l'un d'entre eux possèdent en description "CP210" "ESP32" "USB Serial" "USB UART" afin de se connecter
         
 
         ports = serial.tools.list_ports.comports()
 
         for port in ports:
-            if "CP210" in port.description:
+            if "CP210" in port.description or "USB Serial" in port.description or "ESP32" in port.description or "USB UART" in port.description :
                 try:
                     self.ser = serial.Serial(port.device,115200)
 
                     print("ESP32 connecté sur:",port.device)
-                    
+                    texte_status.config(state="normal")
+                    texte_status.insert("end","Connexion du Banc de Test")
+                    texte_status.config(state="disabled")
 
                     return
                 except:
                     pass
-
+                
         print("ESP32 non détecté")
     def envoie_parametre(self) :
         gestion_limite=CGestion_Limite()
 
 
         texte_status.config(state="normal")
-        texte_status.insert("end", "Paramètre enregistré\n")
+        texte_status.insert("end", "\nParamètre enregistré\n")
         texte_status.insert(tk.END,f"Nombre echantillons:  {gestion_limite.Nb_Ech.get()}\n")
-        texte_status.insert(tk.END,f"Fréquence Echantillonnage: {gestion_limite.Feq.get()} \n")
+        texte_status.insert(tk.END,f"Fréquence Echantillonnage MHz: {gestion_limite.Feq.get()} \n")
         texte_status.see("end")
         texte_status.config(state="disabled")
 
+        trame = ""
 
         Ech=gestion_limite.Nb_Ech.get()
         Feq=gestion_limite.Feq.get()
-        tot="SET_CONF;"+ "N="+Ech + ";" +"F="+Feq +"\n"
-        print(tot)
+        #Verification que la commande param est reçue et attend de recevoir OK;CMD pour continuer le programme
+        param=L_commande[0]+ ";N="+Ech + ";" +"F="+Feq +"\n"
+        print(param)
         if self.ser is not None:
-            self.ser.write(tot.encode())
-
-         
+            self.ser.write(param.encode())
+            
+            
+            while not re.search("OK;CMD;", trame):
+                trame = self.ser.readline().decode().strip()
+                print("trame : "+trame)
+                if re.search("ERR;", trame):
+                    print("erreur: " + trame)
+                    break
+                
         else:
             print("ESP32 non connecté")
 
     def recup_info(self):
+        
         self.donnees = []
         self.compteur= 0
-        rec="START\n"
-        self.ser.write(rec.encode())
-        print(rec)
-        time.sleep(2)
-        meas="MEAS\n"
-        print(meas)
-        self.ser.write(meas.encode())
+        
+        self.ser.write(L_commande[1].encode())
+        
         while True:
             valeur_json=self.ser.readline().decode().strip()
             
-        
+            print(valeur_json if not "" else "rien")
             if valeur_json:
                 if re.search(re.escape('{'),str(valeur_json)):
                     donnee=json.loads(valeur_json)
-
+                    
                     print(donnee)
-
 
                     break
         self.val_temps = donnee["temps"]
-        self.val_imp = donnee["tension"]
+        self.val_tens = donnee["tension"]
         self.val_intensite = donnee["intensite"]
-        return self.val_temps , self.val_imp , self.val_intensite
+        return self.val_temps , self.val_tens , self.val_intensite
 
+    def reinitialiser(self):
+        ## @var reinitialiser
+        #  Suppression de toutes les données du tableau/graphique et des paramètres de mesures
+        self.ser.write(L_commande[2].encode())
+        
+        tableau.delete(*tableau.get_children())
+        ax.clear()
+        graph.draw()
     def demarrer_mesure(self):
         
         ## @var demarrer_mesure
         #  Recupération et affichage des paramètres choisis pour le test 
+        t,tens,inten=self.recup_info()
+        ech=1
+        
+        
+                    
+
+        for i in range (len(t)):
+           dt = 0
+           dinten = 0
+           di_dt = 0
+           if i < len(t) - 1:
+               dt= t[i+1]-t[i]
+               dinten= inten[i+1] - inten[i]
+               if dt != 0:
+                   di_dt = dt/dinten
+               else:
+                   di_dt = 0
+           else:
+               dt = t[i] - t[i-1]
+               dinten= inten[i] - inten[i-1]
+
+           tableau.insert("", "end", values=(ech, tens[i],inten[i],tens[i]*di_dt,t[i]))
+           ech+=1
         gestion_fonction = CGestion_Graphique()
         gestion_fonction.graphique()
-        t,imp,inten=self.recup_info()
-        ech=1
-        for i in range (len(t)):
-           tableau.insert("", "end", values=(ech, imp[i], t[i]))
-           ech+=1
-        
 
 # ============================================================
 # FONCTIONS DE GESTION DES FICHIERS CSV
 # ============================================================
+
+## @class CGestion_Fichier_CSV
+#  Classe pour la gestion des fonctions pour les fichiers CSV
 class CGestion_Fichier_CSV :
-    ## @class CGestion_Fichier_CSV
-    #  Classe pour la gestion des fonctions pour les fichiers CSV
+
 
     def sauvegarder_csv(self):
         ## @var sauvegarder_csv
@@ -146,7 +188,7 @@ class CGestion_Fichier_CSV :
         try:
             with open(filepath, mode="w", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file, delimiter=";")
-                writer.writerow(["Echantillon", "Impedance [mH]","Temps [s]"])
+                writer.writerow(["Echantillon", "Inductance","Tension [v]","Intensite [A]","Temps [s]"])
 
                 for item in tableau.get_children():
                     writer.writerow(tableau.item(item, "values"))
@@ -175,7 +217,7 @@ class CGestion_Fichier_CSV :
                 next(reader)  # ignore l'en-tête
 
                 for row in reader:
-                    tableau.insert("", "end", values=row[:2])
+                    tableau.insert("", "end", values=row[:5])
 
             gestion_graphique = CGestion_Graphique()
             gestion_graphique.graphique()
@@ -183,9 +225,11 @@ class CGestion_Fichier_CSV :
 
         except Exception as e:
             messagebox.showerror("Erreur", f"Erreur de chargement :\n{e}")
+
+## @class CGestion_Fonction
+#  Classe pour la gestion des fonctions quitter et information avec l'interface pour la recherche dans l'historique
 class CGestion_Fonction:
-    ## @class CGestion_Fonction
-    #  Classe pour la gestion des fonctions quitter et information avec l'interface pour la recherche dans l'historique
+    
     
     # ============================================================
     # FONCTIONS DE CONTRÔLE
@@ -211,8 +255,8 @@ class CGestion_Fonction:
     # FONCTION HISTORIQUE
     # ============================================================
     def historique(self):
-        
-        
+        detection_esp32=CGestion_Connexion()
+        t,tens,inten= detection_esp32.recup_info()
         
         if self.HIST is None or not self.HIST.winfo_exists(): 
                self.HIST = tk.Tk()
@@ -231,17 +275,21 @@ class CGestion_Fonction:
                    height=8
                )
                table.heading("E", text="Echantillon")
-               table.heading("I", text="Impédance")
+               table.heading("I", text="Inductance")
                table.heading("T", text="Temps [s]")
                table.grid(row=1, column=0, sticky="nsew")
-                   
+               for i in range (len(t)):
+                    table.insert("", "end", values=(detection_esp32.ech, detection_esp32.tens[i],detection_esp32.t[i]))
+                    ech+=1    
 
      # ============================================================
     # FONCTION BASE DE DONNEE
     # ============================================================
+## @class CGestion_BDD
+#  Classe pour la gestion des fonctions en lien avec la base de donnée . Sa création et l'ajout de donnée 
+
 class CGestion_BDD:
-     ## @class CGestion_BDD
-     #  Classe pour la gestion des fonctions en lien avec la base de donnée
+     ##  Classe pour la gestion des fonctions en lien avec la base de donnée
     
     def __init__(self):
         self.Nom_Test =""
@@ -279,14 +327,14 @@ class CGestion_BDD:
                self.Nom_Tech = ttk.Entry(partie_bdd)
                self.Nom_Tech.grid(row=2, column=1, sticky="ew", padx=5, pady=2)
            
-               bouton_Creer = ttk.Button(partie_bdd, text="Ajouter",command=gestion_bdd.RSQL)
+               bouton_Creer = ttk.Button(partie_bdd, text="Ajouter",command=gestion_bdd.rsql)
                bouton_Creer.grid(row=3, column=0, pady=5)
            
        
-    def RSQL(self):
+    def rsql(self):
            ## @var RSQL
            #@brief Création de la Base de Donnée avec une requête SQL
-            
+            gestion_limite=CGestion_Limite()
             gestion_bdd = CGestion_BDD()
             conn = sqlite3.connect("Base_Projet.db")
             cursor = conn.cursor()
@@ -294,12 +342,27 @@ class CGestion_BDD:
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS Test (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                Nom_Test TEXT,
+                Nom_Test MEDIUMTEXT,
                 Date TEXT,
-                Nom_Tech TEXT,
-                Echantillon INT,
-                Impedance FLOAT,
-                Temps FLOAT
+                Nom_Tech MEDIUMTEXT
+                
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS Parametre (
+            Nb_Ech INT,
+            Frequence_Ech INT
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS Mesure (
+            id INT,
+            Echantillon INT,
+            Inductance FLOAT,
+            Temps FLOAT,
+            FOREIGN KEY (id) REFERENCES Test(id)
             )
             """)
 
@@ -311,51 +374,88 @@ class CGestion_BDD:
                     self.Nom_Tech.get()
                 )
             )
-
+            cursor.execute(
+                "INSERT INTO Parametre (Nb_Ech, Frequence_Ech) VALUES (?, ? )",
+                (
+                    gestion_limite.Nb_Ech.get(),
+                    gestion_limite.Feq.get()
+                )
+            )
+            
             conn.commit()
             conn.close()
 
-            print("Base de données créée avec succès !")
+            print("Le Test a été enregistré !")
+            texte_status.config(state="normal")
+            texte_status.insert("end","Le Test a été enregistré !\n")
+            texte_status.config(state="disabled")
     def ajout_BDD(self):
+
+        ## @var conn
+        #@brief Connexion de l'interface a la base donnée afin de transférer des données
         conn = sqlite3.connect("Base_Projet.db")
         cursor = conn.cursor()
-        requete="INSERT INTO Test (Echantillon, Impedance, Temps) VALUES (?, ?, ?)"
-        for ligne in detection_esp32.donnees:
-            cursor.execute(requete,ligne)
+        ## @var requete
+        #@brief Création d'une requete pour inserer dans la table les valeurs des echantillons ,l'inductance , le temps
+        requete="INSERT INTO Mesure (Echantillon,Inductance, Temps) VALUES (?, ?, ?)"
+        for valeur in tableau.get_children():
+            ligne = tableau.item(valeur, "values")
+            cursor.execute(requete,(ligne[0],ligne[3],ligne[4]))
         conn.commit()
         conn.close()
+        print("Les données ont été envoyées sur la base de données")
+        texte_status.config(state="normal")
+        texte_status.insert("end","Les données ont été envoyées sur la base de données\n")
+        texte_status.config(state="disabled")
 
 # ============================================================
 # FONCTION GRAPHIQUE
 # ============================================================
-class CGestion_Graphique :
-    ## @class CGestion_Graphique
-    # Classe de gestion du graphique d'affichage des valeurs
+## @class CGestion_Graphique
+#  Classe pour la gestion de l'affichage du graphique 
+class CGestion_Graphique:
     def __init__(self):
-        self.x, self.y = [], []
-    def graphique(self):
-        ## @var graphique
-        # Paramètre du graphique ( Son affichage , ses valeurs )
         self.x = []
         self.y = []
-        ax.clear()
-        
 
+    def graphique(self):
+        self.x = []
+        self.y = []
+        self.yi= []
+        self.yimp= []
+        
+        ax.clear()
+
+        
         for item in tableau.get_children():
-            values = tableau.item(item, "values")
+        ## @var valeurs
+        #@brief Renvoie aux données dans le tableau , il récupère les valeurs de chaque colonne pour les utiliser dans le graphique
+            valeurs = tableau.item(item, "values")
+
             try:
-                self.x.append(float(values[2]))
-                self.y.append(float(values[1]))
-            except:
+                temps = float(valeurs[4])       
+                tension = float(valeurs[1])   
+                intensite = float(valeurs [2])
+                inductance = float(valeurs[3])
+                self.x.append(temps)
+                self.y.append(tension)
+                self.yi.append(intensite)
+                self.yimp.append(inductance)
+
+            except ValueError:
                 pass
 
-        ax.plot(self.x, self.y, marker="o", color="blue", label="Impédance [mH]")
+        # Tracé du graphique
+        ax.plot(self.x, self.y, marker=".", label="Tension")
+        ax.plot(self.x, self.yi, marker=".", label="Intensité")
+        ax.plot(self.x, self.yimp, marker=".", label="Inductance")
+        ax.set_title("Courbe  / Temps")
         ax.set_xlabel("Temps [s]")
-        ax.set_ylabel("Impédance [A]")
-        ax.legend()
+        ax.set_ylabel("Tension/Intensité/Inductance")
         ax.grid(True)
+        ax.legend()
 
-        fig.tight_layout()
+        # Rafraîchir l'affichage
         graph.draw()
 
 # ============================================================
@@ -368,17 +468,18 @@ frame_gauche.columnconfigure(0, weight=1)
 partie_parametre = ttk.LabelFrame(frame_gauche, text="Paramètre des mesures")
 partie_parametre.grid(row=1, column=0, sticky="ew", pady=5)
 partie_parametre.columnconfigure(0, weight=1)
+## @class CGestion_Limite
+# Classe pour la gestion des limites des paramètres d'entrée
 class CGestion_Limite :
-    ## @class CGestion_Limite
-    # Classe pour la gestion des limites des entry
+    
     def valider_Ech(new_value):
         ## @var valider_Ech
-        # Verification des valeurs entrées dans les paramètres de mesures . Bloque en cas de valeurs superieur a 1000
+        # Verification des valeurs entrées dans les paramètres de mesures . Bloque en cas de valeurs superieur a 2000
         if new_value == "":
             return True
         try:
             val = int(new_value)
-            return 1 <= val <= 1000
+            return 1 <= val <= 2000
         except ValueError:
             return False
 
@@ -404,18 +505,17 @@ class CGestion_Limite :
     Feq = ttk.Entry(partie_parametre, validate="key", validatecommand=validationFeq)
     Feq.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
 
-# ============================================================
-# CONFIGURATION DU MENU
-# ============================================================
+# ------------------------------------------------------------
+# INITIALISATION DU MENU 
+# ------------------------------------------------------------
 
-## @class CGestion_Interface
-#@brief Classe permettant de regrouper toute l'interface de l'IHM que ce soit les boutons , les labels ou les entry
+
 
 menu = tk.Menu(IHM)
 gestion_csv = CGestion_Fichier_CSV()
 gestion_fonction = CGestion_Fonction()
 gestion_bdd=CGestion_BDD()
-detection_esp32=CDetection_esp32()
+detection_esp32=CGestion_Connexion()
 ## @var menu
 #@brief  Création d'un menu pour acceder au paramètre 
 menu_fichier = tk.Menu(menu, tearoff=0)
@@ -473,17 +573,26 @@ bouton_demarrer = ttk.Button(
 )
 bouton_demarrer.grid(row=2, column=0, pady=5, sticky="ew")
 
-ttk.Label(partie_mesure, text="Statuts").grid(row=3, column=0, sticky="w")
+bouton_reinitialiser = ttk.Button(
+    partie_mesure,
+    text="🔁 Reinitialiser",
+    command=detection_esp32.reinitialiser
+)
+bouton_reinitialiser.grid(row=3, column=0, pady=5, sticky="ew")
+
+ttk.Label(partie_mesure, text="Statuts").grid(row=4, column=0, sticky="w")
 texte_status = tk.Text(partie_mesure, width=30, height=8)
-texte_status.grid(row=4, column=0, pady=5)
+texte_status.grid(row=5, column=0, pady=5)
 texte_status.config(state="disabled")
 
-# ---- Zone Paramètre ----
-
+# ============================================================
+# ZONE PARAMETRE
+# ============================================================
 
 # ---- Zone Echantillons ----
 ttk.Label(partie_parametre, text="Nombre Echantillons").grid(row=0, column=0, sticky="w", padx=5, pady=2)
 partie_parametre.columnconfigure(1, weight=1)
+
 # ---- Zone Fréquence ----
 ttk.Label(partie_parametre, text="Fréquence Echantillonage").grid(row=1, column=0, sticky="w", padx=5, pady=2)
 partie_parametre.columnconfigure(1, weight=1)
@@ -531,14 +640,20 @@ graph = FigureCanvasTkAgg(fig, master=partie_resultat)
 graph.get_tk_widget().grid(row=0, column=0, sticky="nsew", pady=5)
 
 # ----- Table -----
-tableau = ttk.Treeview(partie_resultat, columns=("E", "I","T"), show="headings", height=8 )
+tableau = ttk.Treeview(partie_resultat, columns=("E","Tens","Int","I","T"), show="headings", height=8 )
 tableau.heading("E", text="Echantillon")
-tableau.heading("I", text="Impédance")
+tableau.heading("I", text="Inductance")
 tableau.heading("T", text="Temps [s]")
+tableau.heading("Tens", text="Tension [v]")
+tableau.heading("Int", text="Intensité [A]")
 tableau.grid(row=1, column=0, sticky="nsew")
-
+# ---- Menu Déroulant ----
+menu_deroulant= ttk.Scrollbar(partie_resultat,orient="vertical",command=tableau.yview)
+tableau.configure(yscrollcommand=menu_deroulant.set)
+menu_deroulant.grid(row=1 , column=1 , sticky="ns")
 
 # ============================================================
 # LANCEMENT DE L'IHM
 # ============================================================
 IHM.mainloop()
+ 
