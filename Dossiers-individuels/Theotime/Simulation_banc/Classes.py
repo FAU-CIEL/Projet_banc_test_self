@@ -13,7 +13,7 @@ LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir"]
 CHEMIN_JSON = "LOG"
 FICHIER_JSON = "donnees_self.json"
 C = 0.5 # Capacité du condensateur (F)
-L = 0.6667 # Inductance de la self (H)
+L = 0.038 # Inductance de la self (H)
 U0 = 50 # Tension initiale (V)
 FICHIER_DE_SAUVEGARDE = "sauvegarde.txt"
 CONVERTION_MHZ_HZ = 1_000_000
@@ -257,7 +257,7 @@ class Gestion_fonction:
         led_pret.off()
         self.__Simulation_banc.init_parametre(nb_step=self.__communication.parametre_sim[0],
                                               dt=1/self.__communication.parametre_sim[1])
-        sys.stdout.write("OK;CMD;" + self.__communication.action)
+        sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
 
     def __start(self) -> None | Exception:
         led_pret.off()
@@ -266,7 +266,7 @@ class Gestion_fonction:
             self.__communication.remplir_json(self.__Simulation_banc.t, self.__Simulation_banc.u_l, self.__Simulation_banc.i_l)
             self.__envoi_et_preparation_futur_test()
             sys.stdout.write("\n")
-            sys.stdout.write("OK;CMD;" + self.__communication.action)
+            sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
         except Exception as e:
             raise Exception(e)
 
@@ -279,13 +279,13 @@ class Gestion_fonction:
             valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=" + str(1/dt)
         else:
             valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=0"
-        sys.stdout.write(valeur_simulation)
-        sys.stdout.write("simulation prete")
-        sys.stdout.write("OK;CMD;" + self.__communication.action)
+        sys.stdout.write(valeur_simulation + "\n")
+        sys.stdout.write("simulation prete\n")
+        sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
 
     def __reset(self) -> None:
         led_pret.off()
-        sys.stdout.write("OK;CMD;" + self.__communication.action)
+        sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
         machine.reset()
    
     def __recevoir(self) -> None:
@@ -294,7 +294,7 @@ class Gestion_fonction:
         self.__Simulation_banc.simulation()
         self.__communication.remplir_json(self.__Simulation_banc.t, self.__Simulation_banc.u_l, self.__Simulation_banc.i_l)
         self.__envoi_et_preparation_futur_test()
-        sys.stdout.write("OK;CMD;" + self.__communication.action)
+        sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
 
     def __gestion_action(self) -> bool | Exception:
         if self.__communication.trame_correct:
