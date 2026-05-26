@@ -12,11 +12,7 @@ python --version
 echo.
 
 REM === Se deplace vers l'initialisation de l'environnement virtuel ===
-<<<<<<< HEAD
-cd Simulation_banc\simulation_banc_mpy
-=======
 cd Simulation_banc\Gestion_env
->>>>>>> DEV
 
 REM === demarre l'environnement virtuel ===
 CALL setup_esptool.bat

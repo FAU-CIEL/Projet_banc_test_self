@@ -10,7 +10,6 @@ import os                           # classe systeme (gestion fichiers)
 
 led_pret = machine.Pin(2, machine.Pin.OUT)
 LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir"]
-CHEMIN_JSON = "LOG"
 FICHIER_JSON = "donnees_self.json"
 C = 0.5 # Capacité du condensateur (F)
 L = 0.038 # Inductance de la self (H)
@@ -20,13 +19,12 @@ CONVERTION_MHZ_HZ = 1_000_000
 
 # classe pour la communication
 class Communication:
-    def __init__(self, chemin_json, fichier_json) -> None:
+    def __init__(self, fichier_json) -> None:
         self.__mon_json = None
         self.__trame = ""
         self.trame_correct = False
         self.action = ""
         self.parametre_sim = [0, 0] #   Premier arg => nb echantillon   Deuxieme arg => frequence d'echantillonage
-        self.__chemin_fichier_json = chemin_json
         self.__fichier_json = fichier_json
         self.__poller = select.poll()
         self.__poller.register(sys.stdout, select.POLLOUT)
@@ -71,15 +69,6 @@ class Communication:
             self.__action_trame()
         except Exception as e:
             raise Exception(e)
-
-    def __fichier_existant(self) -> bool:
-        if sys.platform == "esp32":
-            os.chdir("/" + self.__chemin_fichier_json)
-            for fichier in os.ilistdir():
-                nom_fichier, type_, *_ = fichier
-                if type_ == 0x8000 and nom_fichier == self.__fichier_json: # type 0x8000 = fichier
-                    return True
-        return False
     
     def __sortie_prete(self) -> bool:
         events = self.__poller.poll()
@@ -91,7 +80,7 @@ class Communication:
     
     def envoi_donnees(self) -> None | Exception:
         try:
-            if self.__sortie_prete() and self.__fichier_existant():
+            if self.__fichier_json in os.listdir() and self.__sortie_prete():
                 with io.open(self.__fichier_json, 'r') as file:
                     for line in file:
                         sys.stdout.write(line.strip() + '\n')
@@ -100,7 +89,7 @@ class Communication:
             raise Exception("erreur de memoire")
     
     def remplir_json(self, temps, tension, intensite) -> None:
-        self.__mon_json = Gestion_json(self.__chemin_fichier_json, self.__fichier_json)
+        self.__mon_json = Gestion_json(self.__fichier_json)
         self.__mon_json.prepa_json(temps, tension, intensite)
     
     def detruire_json(self) -> None:
@@ -165,8 +154,7 @@ class Simulation:
 
 # classe qui stocke les valeurs dans un json
 class Gestion_json:
-    def __init__(self, chemin_json, fichier_json) -> None:
-        self.__chemin_json = chemin_json
+    def __init__(self, fichier_json) -> None:
         self.__fichier_json = fichier_json
         self.__donner_a_stocker = {
             "temps": [],
@@ -174,14 +162,8 @@ class Gestion_json:
             "intensite": []
             }
 
-    def __creer_chemin_json(self) -> None:
-        if not self.__chemin_json in os.listdir():
-            os.mkdir(self.__chemin_json)
-
     def __creer_json(self) -> None:
         if sys.platform == "esp32":
-            self.__creer_chemin_json()
-            os.chdir(self.__chemin_json)
             with io.open(self.__fichier_json, 'w') as creation_file:
                 pass
             creation_file.close()
@@ -201,19 +183,10 @@ class Gestion_json:
         self.__preparation_donnee("intensite", intensite)
         self.__charger_json()
 
-    def __detruire_file(self) -> None:
-        os.chdir("/" + self.__chemin_json)
-        os.remove(self.__fichier_json)
-
     def detruire_json(self) -> None:
         if sys.platform == "esp32":
-            os.chdir("/")
-            if self.__chemin_json in os.listdir():
-                os.chdir("/" + self.__chemin_json)
-                if self.__fichier_json in os.listdir():
-                    self.__detruire_file()
-                os.chdir("/")
-                os.rmdir(self.__chemin_json)
+            if self.__fichier_json in os.listdir():
+                    os.remove(self.__fichier_json)
 
 #classe qui gere les differentes erreurs
 class Gestion_erreur:
@@ -238,7 +211,7 @@ class Gestion_erreur:
 # classe qui gere les autres fonctions
 class Gestion_fonction:
     def __init__(self) -> None:
-        self.__communication = Communication(CHEMIN_JSON, FICHIER_JSON)
+        self.__communication = Communication(FICHIER_JSON)
         self.__Simulation_banc = Simulation()
         self.__mes_erreurs = Gestion_erreur()
         self.__charger_sauvegarde()
