@@ -9,10 +9,10 @@ import os                           # classe systeme (gestion fichiers)
 
 
 led_pret = machine.Pin(2, machine.Pin.OUT)
-LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir"]
+LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "SET_IND", "recevoir"]
 FICHIER_JSON = "donnees_self.json"
-C = 0.5 # Capacité du condensateur (F)
-L = 0.038 # Inductance de la self (H)
+C = 0.000001 # Capacité du condensateur (F)
+L = 0.0001 # Inductance de la self (H)
 U0 = 50 # Tension initiale (V)
 FICHIER_DE_SAUVEGARDE = "sauvegarde.txt"
 CONVERTION_MHZ_HZ = 1_000_000
@@ -25,6 +25,7 @@ class Communication:
         self.trame_correct = False
         self.action = ""
         self.parametre_sim = [0, 0] #   Premier arg => nb echantillon   Deuxieme arg => frequence d'echantillonage
+        self.inductance = 1         # nouvelle inductance definit sur commande
         self.__fichier_json = fichier_json
         self.__poller = select.poll()
         self.__poller.register(sys.stdout, select.POLLOUT)
@@ -46,6 +47,12 @@ class Communication:
             try:
                 self.parametre_sim[0] = int(trame_split[1].split('=')[1])
                 self.parametre_sim[1] = float(trame_split[2].split('=')[1]) * CONVERTION_MHZ_HZ
+            except Exception:
+                raise Exception("erreur format parametre")
+        elif LISTE_COMMANDS[4] in self.__trame: # SET_IND
+            trame_split = self.__trame.split(";")
+            try:
+                self.inductance = float(trame_split[1])
             except Exception:
                 raise Exception("erreur format parametre")
             
@@ -119,19 +126,27 @@ class Simulation:
         self.u_l = []
         self.i_l = []
 
-    def init_parametre(self, nb_step, dt) -> None:
-        self.__n_steps = nb_step
-        self.__dt = dt
+    def init_parametre(self, *args) -> None:
+        if len(args) == 2:
+            self.__n_steps = args[0]
+            self.__dt = args[1]
 
-        self.t = [0] * self.__n_steps
-        self.u_l = [0] * self.__n_steps
-        self.i_l = [0] * self.__n_steps
+            self.t = [0] * self.__n_steps
+            self.u_l = [0] * self.__n_steps
+            self.i_l = [0] * self.__n_steps
+
+        elif len(args) == 1:
+            self.__L = args[0]
+            self.__omega0 = 1 / math.sqrt(self.__L * self.__C)
 
     def get_dt(self) -> float:
         return self.__dt
     
     def get_n_steps(self) -> int:
         return self.__n_steps
+    
+    def get_L(self) -> float:
+        return self.__L
 
     def __calcul_tension(self, t) -> float:
         return self.__U0 * math.cos(self.__omega0 * t + self.__phi)
@@ -228,8 +243,8 @@ class Gestion_fonction:
 
     def __set_conf(self) -> None:
         led_pret.off()
-        self.__Simulation_banc.init_parametre(nb_step=self.__communication.parametre_sim[0],
-                                              dt=1/self.__communication.parametre_sim[1])
+        self.__Simulation_banc.init_parametre(self.__communication.parametre_sim[0],
+                                              1/self.__communication.parametre_sim[1])
         sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
 
     def __start(self) -> None | Exception:
@@ -253,6 +268,7 @@ class Gestion_fonction:
         else:
             valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=0"
         sys.stdout.write(valeur_simulation + "\n")
+        sys.stdout.write("indyuctance=" + str(self.__Simulation_banc.get_L()) + "\n")
         sys.stdout.write("simulation prete\n")
         sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
 
@@ -260,10 +276,15 @@ class Gestion_fonction:
         led_pret.off()
         sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
         machine.reset()
+    
+    def __set_ind(self) -> None:
+        led_pret.off()
+        self.__Simulation_banc.init_parametre(self.__communication.inductance)
+        sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
    
     def __recevoir(self) -> None:
         led_pret.off()
-        self.__Simulation_banc.init_parametre(nb_step=50, dt=1/10)
+        self.__Simulation_banc.init_parametre(50, 1/10)
         self.__Simulation_banc.simulation()
         self.__communication.remplir_json(self.__Simulation_banc.t, self.__Simulation_banc.u_l, self.__Simulation_banc.i_l)
         self.__envoi_et_preparation_futur_test()
@@ -285,6 +306,9 @@ class Gestion_fonction:
                     self.__reset()
                     return True
                 elif self.__communication.action == LISTE_COMMANDS[4]:
+                    self.__set_ind()
+                    return False
+                elif self.__communication.action == LISTE_COMMANDS[5]:
                     self.__recevoir()
                     return True
                 self.__communication.trame_correct = False
@@ -295,7 +319,7 @@ class Gestion_fonction:
     def __mon_reset(self) -> None:
         if self.__Simulation_banc.get_n_steps() != 0 and self.__Simulation_banc.get_dt() != 0:
             with io.open(FICHIER_DE_SAUVEGARDE, 'w') as save_file:
-                save_file.write("nb_enchantillon=" + str(self.__Simulation_banc.get_n_steps()) + ";frequence_echantillonage=" + str(1/self.__Simulation_banc.get_dt()))
+                save_file.write("nb_enchantillon=" + str(self.__Simulation_banc.get_n_steps()) + ";frequence_echantillonage=" + str(1/self.__Simulation_banc.get_dt()) + ";inductance=" + str(self.__Simulation_banc.get_L()))
             save_file.close()
         
         if self.__mes_erreurs.erreur_present:
@@ -310,7 +334,9 @@ class Gestion_fonction:
                 parametres = save_file.readline().split(";")
                 nb_echantillon = int(parametres[0].split("=")[1])
                 frequence_echantillonage = float(parametres[1].split("=")[1])
-                self.__Simulation_banc.init_parametre(nb_step=nb_echantillon, dt= 1/frequence_echantillonage)
+                inductance = float(parametres[2].split("=")[1])
+                self.__Simulation_banc.init_parametre(nb_echantillon, 1/frequence_echantillonage)
+                self.__Simulation_banc.init_parametre(inductance)
             save_file.close()
             os.remove(FICHIER_DE_SAUVEGARDE)
 
