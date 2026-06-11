@@ -28,6 +28,8 @@ from datetime import datetime
 import re
 import time
 
+
+
 # ============================================================
 # INITIALISATION DE LA FENÊTRE PRINCIPALE
 # ============================================================
@@ -35,7 +37,8 @@ import time
 IHM = tk.Tk()
 IHM.title("Interface Banc de Test")
 IHM.geometry("1600x700")
-L_commande = ["SET_CONF","START\n","RESET\n","GET_STATUS\n","recevoir\n"]
+L_commande = ["SET_CONF","START\n","RESET\n","GET_STATUS\n"]
+unite = tk.StringVar()
 # ------------------------------------------------------------
 # INITIALISATION DES CLASSES 
 # ------------------------------------------------------------
@@ -63,9 +66,11 @@ class CGestion_Connexion :
                 try:
                     self.ser = serial.Serial(port.device,115200)
 
-                    print("ESP32 connecté sur:",port.device)
+                    ## @fonc texte_status
+                    # Elle correspond au bloc ou s'affiche le statut lors des commandes
                     texte_status.config(state="normal")
                     texte_status.insert("end","Connexion du Banc de Test")
+                    texte_status.insert("end",f"\nConnecté sur le {port.device}")
                     texte_status.config(state="disabled")
 
                     return
@@ -73,6 +78,9 @@ class CGestion_Connexion :
                     pass
                 
         print("ESP32 non détecté")
+        texte_status.config(state="normal")
+        texte_status.insert("end","ESP32 non détecté")
+        texte_status.config(state="disabled")
     def envoie_parametre(self) :
         gestion_limite=CGestion_Limite()
 
@@ -80,16 +88,16 @@ class CGestion_Connexion :
         texte_status.config(state="normal")
         texte_status.insert("end", "\nParamètre enregistré\n")
         texte_status.insert(tk.END,f"Nombre echantillons:  {gestion_limite.Nb_Ech.get()}\n")
-        texte_status.insert(tk.END,f"Fréquence Echantillonnage MHz: {gestion_limite.Feq.get()} \n")
+        texte_status.insert(tk.END,f"Fréquence Echantillonnage : {gestion_limite.Feq.get()} {unite.get()} \n",)
         texte_status.see("end")
         texte_status.config(state="disabled")
 
         trame = ""
-
+        #Récupération des valeurs du nombre d'échantillon et de la fréquence d'echantillonnage
         Ech=gestion_limite.Nb_Ech.get()
         Feq=gestion_limite.Feq.get()
         #Verification que la commande param est reçue et attend de recevoir OK;CMD pour continuer le programme
-        param=L_commande[0]+ ";N="+Ech + ";" +"F="+Feq +"\n"
+        param=L_commande[0]+ ";N="+Ech + ";" +"F="+Feq +";"+unite.get()+"\n"
         print(param)
         if self.ser is not None:
             self.ser.write(param.encode())
@@ -109,20 +117,23 @@ class CGestion_Connexion :
         
         self.donnees = []
         self.compteur= 0
-        
+        #Envoie de la commande start
         self.ser.write(L_commande[1].encode())
         
         while True:
+            #Récupération des valeurs dans la variable valeur_json
             valeur_json=self.ser.readline().decode().strip()
             
             print(valeur_json if not "" else "rien")
             if valeur_json:
+                #Séparation par { correspond a un tableau 
                 if re.search(re.escape('{'),str(valeur_json)):
                     donnee=json.loads(valeur_json)
                     
                     print(donnee)
 
                     break
+                #Création de 3 tableau pour les 3 données
         self.val_temps = donnee["temps"]
         self.val_tens = donnee["tension"]
         self.val_intensite = donnee["intensite"]
@@ -145,7 +156,7 @@ class CGestion_Connexion :
         
         
                     
-
+        #Calcul de l'inductance
         for i in range (len(t)):
            dt = 0
            dinten = 0
@@ -160,7 +171,7 @@ class CGestion_Connexion :
            else:
                dt = t[i] - t[i-1]
                dinten= inten[i] - inten[i-1]
-
+               #Affichage des valeurs dans le tableau
            tableau.insert("", "end", values=(ech, tens[i],inten[i],tens[i]*di_dt,t[i]))
            ech+=1
         gestion_fonction = CGestion_Graphique()
@@ -254,34 +265,7 @@ class CGestion_Fonction:
     # ============================================================
     # FONCTION HISTORIQUE
     # ============================================================
-    def historique(self):
-        detection_esp32=CGestion_Connexion()
-        t,tens,inten= detection_esp32.recup_info()
-        
-        if self.HIST is None or not self.HIST.winfo_exists(): 
-               self.HIST = tk.Tk()
-               self.HIST.title("Historique")
-               self.HIST.geometry("700x400")
-               partie_historique = ttk.LabelFrame(self.HIST, text="Historique")
-               partie_historique.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
-               partie_historique.columnconfigure(0, weight=2)
-               partie_historique.rowconfigure(0, weight=2)
-               partie_historique.rowconfigure(1, weight=2)
-               # ----- Table -----
-               table = ttk.Treeview(
-                   partie_historique,
-                   columns=("E", "I","T"),
-                   show="headings",
-                   height=8
-               )
-               table.heading("E", text="Echantillon")
-               table.heading("I", text="Inductance")
-               table.heading("T", text="Temps [s]")
-               table.grid(row=1, column=0, sticky="nsew")
-               for i in range (len(t)):
-                    table.insert("", "end", values=(detection_esp32.ech, detection_esp32.tens[i],detection_esp32.t[i]))
-                    ech+=1    
-
+    #def historique(self):
      # ============================================================
     # FONCTION BASE DE DONNEE
     # ============================================================
@@ -338,7 +322,7 @@ class CGestion_BDD:
             gestion_bdd = CGestion_BDD()
             conn = sqlite3.connect("Base_Projet.db")
             cursor = conn.cursor()
-
+            #Requete SQL pour la création de la table test
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS Test (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -348,14 +332,14 @@ class CGestion_BDD:
                 
             )
             """)
-
+            #Requete SQL pour la création de la table Parametre
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS Parametre (
             Nb_Ech INT,
             Frequence_Ech INT
             )
             """)
-
+            #Requete SQL pour la création de la table Mesure
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS Mesure (
             id INT,
@@ -365,7 +349,7 @@ class CGestion_BDD:
             FOREIGN KEY (id) REFERENCES Test(id)
             )
             """)
-
+            #Requete SQL pour l'insertion de valeurs dans la table Test
             cursor.execute(
                 "INSERT INTO Test (Nom_Test, Date, Nom_Tech) VALUES (?, ?, ?)",
                 (
@@ -374,6 +358,7 @@ class CGestion_BDD:
                     self.Nom_Tech.get()
                 )
             )
+            #Requete SQL pour l'insertion de valeurs dans la table parametre
             cursor.execute(
                 "INSERT INTO Parametre (Nb_Ech, Frequence_Ech) VALUES (?, ? )",
                 (
@@ -594,32 +579,26 @@ ttk.Label(partie_parametre, text="Nombre Echantillons").grid(row=0, column=0, st
 partie_parametre.columnconfigure(1, weight=1)
 
 # ---- Zone Fréquence ----
-ttk.Label(partie_parametre, text="Fréquence Echantillonage").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+ttk.Label(partie_parametre, text="Fréquence Echantillonnage").grid(row=1, column=0, sticky="w", padx=5, pady=2)
 partie_parametre.columnconfigure(1, weight=1)
+ttk.Combobox(partie_parametre,values=["Hz","kHz","MHz","GHz"],textvariable=unite,width=2,state="readonly").grid(row=1, column=2, sticky="w", padx=2, pady=2)
 
-# ---- Zone Autre ----
-partie_autre = ttk.LabelFrame(frame_gauche, text="Autre")
+# ---- Zone BDD ----
+partie_autre = ttk.LabelFrame(frame_gauche, text="Base de Donnée")
 partie_autre.grid(row=3, column=0, sticky="ew", pady=5)
 partie_autre.columnconfigure(0, weight=1)
 
-# ---- Bouton Historique ----
-bouton_historique = ttk.Button(
-    partie_autre,
-    text="Historique",
-    command=gestion_fonction.historique
-)
-bouton_historique.grid(row=3, column=0, pady=5, sticky="ew")
 # ---- Bouton BDD ----
 bouton_BDD = ttk.Button(
     partie_autre,
-    text="Base de Donnée",
+    text="Création Test",
     command=gestion_bdd.creer_BDD
 )
 bouton_BDD.grid(row=4, column=0, pady=5, sticky="ew")
 # ---- Bouton Ajout-Donnée ----
 bouton_AjD = ttk.Button(
     partie_autre,
-    text="Ajouter Données",
+    text="Envoyer Données",
     command=gestion_bdd.ajout_BDD
 )
 bouton_AjD.grid(row=5, column=0, pady=5, sticky="ew")
