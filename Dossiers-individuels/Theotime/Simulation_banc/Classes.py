@@ -9,13 +9,15 @@ import os                           # classe systeme (gestion fichiers)
 
 
 led_pret = machine.Pin(2, machine.Pin.OUT)
-LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "recevoir"]
+LISTE_COMMANDS  = ["SET_CONF", "START", "GET_STATUS", "RESET", "SET_IND", "recevoir"]
 FICHIER_JSON = "donnees_self.json"
-C = 0.5 # Capacité du condensateur (F)
-L = 0.038 # Inductance de la self (H)
+C = 0.000001 # Capacité du condensateur (F)
+L = 0.0001 # Inductance de la self (H)
 U0 = 50 # Tension initiale (V)
 FICHIER_DE_SAUVEGARDE = "sauvegarde.txt"
-CONVERTION_MHZ_HZ = 1_000_000
+UNITE_FREQUENCE_POSSIBLE = [("Hz\n", 1), ("kHz\n", 1_000), ("MHz\n", 1_000_000), ("GHz\n", 1_000_000_000)]
+
+POUR_ER = False     # variable pour difinir si l'esp est pour les ER ou non (moins de fonctionnalité pour les ER)
 
 # classe pour la communication
 class Communication:
@@ -24,7 +26,9 @@ class Communication:
         self.__trame = ""
         self.trame_correct = False
         self.action = ""
-        self.parametre_sim = [0, 0] #   Premier arg => nb echantillon   Deuxieme arg => frequence d'echantillonage
+        self.parametre_sim = [0, 0]         # Premier arg => nb echantillon   Deuxieme arg => frequence d'echantillonage
+        self.multiplicateur_frequence = 1_000_000   # multiplicateur de la frequence d'echantillonage (Hz, kHz, MHz, GHz)
+        self.inductance = 1                 # nouvelle inductance definit sur commande
         self.__fichier_json = fichier_json
         self.__poller = select.poll()
         self.__poller.register(sys.stdout, select.POLLOUT)
@@ -45,7 +49,19 @@ class Communication:
             trame_split = self.__trame.split(";")
             try:
                 self.parametre_sim[0] = int(trame_split[1].split('=')[1])
-                self.parametre_sim[1] = float(trame_split[2].split('=')[1]) * CONVERTION_MHZ_HZ
+                self.parametre_sim[1] = float(trame_split[2].split('=')[1])
+                if not POUR_ER:
+                    for unite, multiplicateur in UNITE_FREQUENCE_POSSIBLE:
+                        if trame_split[3] == unite:
+                            self.multiplicateur_frequence = multiplicateur
+                            self.parametre_sim[1] *= multiplicateur
+                            break
+            except Exception:
+                raise Exception("erreur format parametre")
+        elif LISTE_COMMANDS[4] in self.__trame: # SET_IND
+            trame_split = self.__trame.split(";")
+            try:
+                self.inductance = float(trame_split[1])
             except Exception:
                 raise Exception("erreur format parametre")
             
@@ -83,7 +99,7 @@ class Communication:
             if self.__fichier_json in os.listdir() and self.__sortie_prete():
                 with io.open(self.__fichier_json, 'r') as file:
                     for line in file:
-                        sys.stdout.write(line.strip() + '\n')
+                        sys.stdout.write(line.strip() + "\n")
                 file.close()
         except Exception:
             raise Exception("erreur de memoire")
@@ -119,19 +135,27 @@ class Simulation:
         self.u_l = []
         self.i_l = []
 
-    def init_parametre(self, nb_step, dt) -> None:
-        self.__n_steps = nb_step
-        self.__dt = dt
+    def init_parametre(self, *args) -> None:
+        if len(args) == 2:
+            self.__n_steps = args[0]
+            self.__dt = args[1]
 
-        self.t = [0] * self.__n_steps
-        self.u_l = [0] * self.__n_steps
-        self.i_l = [0] * self.__n_steps
+            self.t = [0] * self.__n_steps
+            self.u_l = [0] * self.__n_steps
+            self.i_l = [0] * self.__n_steps
+
+        elif len(args) == 1:
+            self.__L = args[0]
+            self.__omega0 = 1 / math.sqrt(self.__L * self.__C)
 
     def get_dt(self) -> float:
         return self.__dt
     
     def get_n_steps(self) -> int:
         return self.__n_steps
+    
+    def get_L(self) -> float:
+        return self.__L
 
     def __calcul_tension(self, t) -> float:
         return self.__U0 * math.cos(self.__omega0 * t + self.__phi)
@@ -228,8 +252,8 @@ class Gestion_fonction:
 
     def __set_conf(self) -> None:
         led_pret.off()
-        self.__Simulation_banc.init_parametre(nb_step=self.__communication.parametre_sim[0],
-                                              dt=1/self.__communication.parametre_sim[1])
+        self.__Simulation_banc.init_parametre(self.__communication.parametre_sim[0],
+                                              1/self.__communication.parametre_sim[1])
         sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
 
     def __start(self) -> None | Exception:
@@ -247,12 +271,23 @@ class Gestion_fonction:
         led_pret.off()
         dt = self.__Simulation_banc.get_dt()
         nb_step = self.__Simulation_banc.get_n_steps()
+        indu = self.__Simulation_banc.get_L()
+        unite_frequence = ""
+        if not POUR_ER:
+            for unite, multiplicateur in UNITE_FREQUENCE_POSSIBLE:
+                if self.__communication.multiplicateur_frequence == multiplicateur:
+                    unite_frequence = unite
+                    break
         valeur_simulation = ""
         if dt != 0:
-            valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=" + str(1/dt)
+            if POUR_ER:
+                valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=" + str((1/dt)) + "\n"
+            else:
+                valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=" + str((1/dt) / self.__communication.multiplicateur_frequence) + unite_frequence
         else:
-            valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=0"
-        sys.stdout.write(valeur_simulation + "\n")
+            valeur_simulation = "Parametre;nb_echantillon=" + str(nb_step) + ";frequence_echantillonage=0Hz\n"
+        sys.stdout.write(valeur_simulation)
+        sys.stdout.write("inductance=" + str(indu) + "\n")
         sys.stdout.write("simulation prete\n")
         sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
 
@@ -260,10 +295,15 @@ class Gestion_fonction:
         led_pret.off()
         sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
         machine.reset()
+    
+    def __set_ind(self) -> None:
+        led_pret.off()
+        self.__Simulation_banc.init_parametre(self.__communication.inductance)
+        sys.stdout.write("OK;CMD;" + self.__communication.action + "\n")
    
     def __recevoir(self) -> None:
         led_pret.off()
-        self.__Simulation_banc.init_parametre(nb_step=50, dt=1/10)
+        self.__Simulation_banc.init_parametre(50, 1/10)
         self.__Simulation_banc.simulation()
         self.__communication.remplir_json(self.__Simulation_banc.t, self.__Simulation_banc.u_l, self.__Simulation_banc.i_l)
         self.__envoi_et_preparation_futur_test()
@@ -285,6 +325,9 @@ class Gestion_fonction:
                     self.__reset()
                     return True
                 elif self.__communication.action == LISTE_COMMANDS[4]:
+                    self.__set_ind()
+                    return False
+                elif self.__communication.action == LISTE_COMMANDS[5]:
                     self.__recevoir()
                     return True
                 self.__communication.trame_correct = False
@@ -295,7 +338,15 @@ class Gestion_fonction:
     def __mon_reset(self) -> None:
         if self.__Simulation_banc.get_n_steps() != 0 and self.__Simulation_banc.get_dt() != 0:
             with io.open(FICHIER_DE_SAUVEGARDE, 'w') as save_file:
-                save_file.write("nb_enchantillon=" + str(self.__Simulation_banc.get_n_steps()) + ";frequence_echantillonage=" + str(1/self.__Simulation_banc.get_dt()))
+                if POUR_ER:
+                    save_file.write("nb_enchantillon=" + str(self.__Simulation_banc.get_n_steps()) +
+                                    ";frequence_echantillonage=" + str(1/self.__Simulation_banc.get_dt()) +
+                                    ";inductance=" + str(self.__Simulation_banc.get_L()))
+                else:
+                    save_file.write("nb_enchantillon=" + str(self.__Simulation_banc.get_n_steps()) + 
+                                    ";frequence_echantillonage=" + str(1/self.__Simulation_banc.get_dt()) + 
+                                    ";inductance=" + str(self.__Simulation_banc.get_L()) + 
+                                    ";multiplicateur_frequence=" + str(self.__communication.multiplicateur_frequence))
             save_file.close()
         
         if self.__mes_erreurs.erreur_present:
@@ -307,10 +358,22 @@ class Gestion_fonction:
     def __charger_sauvegarde(self) -> None:
         if FICHIER_DE_SAUVEGARDE in os.listdir():
             with io.open(FICHIER_DE_SAUVEGARDE, 'r') as save_file:
-                parametres = save_file.readline().split(";")
-                nb_echantillon = int(parametres[0].split("=")[1])
-                frequence_echantillonage = float(parametres[1].split("=")[1])
-                self.__Simulation_banc.init_parametre(nb_step=nb_echantillon, dt= 1/frequence_echantillonage)
+                if POUR_ER:
+                    parametres = save_file.readline().split(";")
+                    nb_echantillon = int(parametres[0].split("=")[1])
+                    frequence_echantillonage = float(parametres[1].split("=")[1])
+                    inductance = float(parametres[2].split("=")[1])
+                    self.__Simulation_banc.init_parametre(nb_echantillon, 1/frequence_echantillonage)
+                    self.__Simulation_banc.init_parametre(inductance)
+                else:
+                    parametres = save_file.readline().split(";")
+                    nb_echantillon = int(parametres[0].split("=")[1])
+                    frequence_echantillonage = float(parametres[1].split("=")[1])
+                    inductance = float(parametres[2].split("=")[1])
+                    multiplicateur_frequence = int(parametres[3].split("=")[1])
+                    self.__Simulation_banc.init_parametre(nb_echantillon, 1/frequence_echantillonage)
+                    self.__Simulation_banc.init_parametre(inductance)
+                    self.__communication.multiplicateur_frequence = multiplicateur_frequence
             save_file.close()
             os.remove(FICHIER_DE_SAUVEGARDE)
 
